@@ -223,9 +223,13 @@ app.post('/api/broadcast', async (req, res) => {
     
     // 3. 通過 Socket.IO 廣播
     // 發送的資料可以包含 Mongoose 自動生成的 ID (_id) 和時間戳
-    io.to(targetRoom).emit('receive_announcement', {
+    io.to(targetRoom).emit('new_announcement', {
         // 將 Mongoose 物件轉換為 JSON 以便安全傳輸，並包含所有欄位
-        ...savedAnnouncement.toJSON(), 
+        // 'sender' 欄位使用 created_by (發送者 ID)
+        // 'message' 欄位使用 content (公告內容)
+        sender: created_by,   // <--- 關鍵修正：將發送者 ID 賦值給 sender
+        message: content,     // <--- 關鍵修正：將公告內容賦值給 message
+        timestamp: savedAnnouncement.publish_date.getTime(), // 使用儲存的時間作為時間戳
         target: targetRoom 
     });
 
