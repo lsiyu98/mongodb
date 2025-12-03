@@ -270,6 +270,54 @@
             chatMessagesEl.innerHTML += messageHtml;
         }
 
+        // 在 app.html 內部的 <script> 標籤中新增此函式
+
+        /**
+         * 從後端 API 載入歷史訊息
+         * @param {string} userA - 當前用戶 ID
+         * @param {string} userB - 對話對象 ID
+         */
+        async function loadChatHistory(userA, userB) {
+            if (!userA || !userB || userB === 'System') {
+                renderCurrentChat();
+                return; 
+            } 
+
+            try {
+                const response = await axios.get(`${API_SERVER_URL}/api/chat/${userA}/${userB}`);
+                
+                if (response.data.success && response.data.messages) {
+                    const messages = response.data.messages;
+                    
+                    // 1. 清空目前的緩存，準備存入新紀錄
+                    chatHistory[userB] = []; 
+                    
+                    // 2. 將歷史訊息添加到緩存中
+                    messages.forEach(msg => {
+                        // 將從 DB 獲取的訊息格式化後存入
+                        chatHistory[userB].push({
+                            senderId: msg.senderId,
+                            receiverId: msg.receiverId,
+                            message: msg.message,
+                            timestamp: new Date(msg.createdAt).getTime(), // 使用 Mongoose 的 createdAt 欄位
+                            isSystem: false
+                        });
+                    });
+                    
+                    // 3. 渲染目前的聊天視窗
+                    renderCurrentChat();
+                }
+            } catch (error) {
+                console.error('載入歷史訊息失敗:', error);
+                addChatMessage({
+                    senderId: 'System', 
+                    message: `[歷史紀錄載入失敗]：無法從伺服器載入與 ${userB} 的對話。`, 
+                    timestamp: new Date().getTime(), 
+                    isSystem: true
+                });
+                selectPeer('System'); 
+            }
+        }
         /**
          * 核心功能：根據當前選中的聯繫人ID渲染對話框
          */
@@ -348,6 +396,9 @@
         }
 
         /**
+        // 修正 selectPeer 函式
+
+        /**
          * 選擇新的對話對象
          * @param {string} peerId - 被選中的聯繫人 ID
          */
@@ -355,11 +406,19 @@
             // 如果連線尚未建立，但 peerId 是有效的，我們仍然允許設置 currentPeerId
             // 但如果選中相同的 peerId，則跳過
             if (peerId !== currentPeerId) {
-                 currentPeerId = peerId;
+                currentPeerId = peerId;
             }
 
             renderContactList(); // 更新列表中的高亮狀態
-            renderCurrentChat(); // 載入新的對話歷史
+            
+            // ***** 關鍵新增：載入歷史訊息 *****
+            if (currentPeerId !== 'System') {
+                // 只有在連線成功時才嘗試載入，但連線狀態檢查放在 loadChatHistory 內更安全
+                loadChatHistory(currentUserId, currentPeerId); 
+            } else {
+                renderCurrentChat(); // 仍然要渲染系統訊息
+            }
+            // **********************************
             
             // 強化：根據當前連線狀態和選中對象來啟用/禁用輸入框
             const isConnected = socket && !socket.disconnected;
@@ -489,6 +548,7 @@
             // 建立新的 Socket.IO 連線
             socket = io(API_SERVER_URL);
 
+            // 位於 connectAndRegister 函式內部
             socket.on('connect', () => {
                 console.log('Socket.IO 已連線');
                 setStatus(true); 
@@ -503,6 +563,11 @@
                     timestamp: new Date().getTime(), 
                     isSystem: true
                 });
+                
+                // *** 最終修正：確保連線成功後觸發 selectPeer ***
+                // 這會自動呼叫 loadChatHistory，載入歷史訊息
+                selectPeer(currentPeerId); 
+                // **********************************************
             });
 
             socket.on('disconnect', () => {
