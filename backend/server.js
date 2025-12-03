@@ -30,15 +30,8 @@ const MONGODB_URI = 'mongodb://localhost:27017/CampusFoodDB';
 // Mongoose / MongoDB 連線與 Model 定義
 // ===========================================
 
-// 連線到 MongoDB (位置建議放在所有 Model 定義之前)
-mongoose.connect(MONGODB_URI)
-    .then(() => {
-        console.log("MongoDB 連線成功。");
-    })
-    .catch(err => {
-        console.error("❌ 無法連線到 MongoDB:", err);
-        process.exit(1);
-    });
+
+
 
 
 // 1. 定義公告 (Announcement) Schema 和 Model (已修正欄位以符合您的要求)
@@ -85,15 +78,7 @@ const connectedUsers = {};
 // 儲存 SocketID -> 用戶資訊 (UserID, Role)
 const socketIdToUser = {};
 
-// 創建資料庫連線池
-let pool;
-try {
-    pool = mysql.createPool(dbConfig);
-    console.log("MySQL 連線池已建立。");
-} catch (error) {
-    console.error("無法建立 MySQL 連線池:", error);
-    process.exit(1); // 連線失敗則退出應用程式
-}
+
 
 // ===========================================
 // Socket.IO 即時通訊邏輯
@@ -295,3 +280,37 @@ server.listen(PORT, () => {
     console.log(`請確保您的 MySQL 服務已啟動並使用了 CAMPUS.sql 腳本。`);
     console.log(`現在您可以打開 frontend/app.html 進行測試。`);
 });
+
+
+// ===========================================
+// 統一的伺服器啟動邏輯 (使用 async/await)
+// ===========================================
+async function startServer() {
+    // 1. 啟動 MySQL 連線 (等待完成)
+    try {
+        pool = await mysql.createPool(dbConfig);
+        console.log("MySQL 連線池已建立。");
+    } catch (error) {
+        console.error("❌ 無法建立 MySQL 連線池:", error);
+        process.exit(1); 
+    }
+
+    // 2. 啟動 MongoDB 連線 (強制等待連線結果)
+    try {
+        await mongoose.connect(MONGODB_URI);
+        console.log("MongoDB 連線成功。"); 
+    } catch (err) {
+        console.error("❌ 無法連線到 MongoDB:", err); 
+        process.exit(1); // 連線失敗，強制程序退出
+    }
+
+    // 3. 所有連線成功後，啟動 HTTP 伺服器
+    server.listen(PORT, () => {
+        console.log(`伺服器運行於 http://localhost:${PORT}`);
+        console.log(`請確保您的 MySQL 服務已啟動並使用了 CAMPUS.sql 腳本。`);
+        console.log(`現在您可以打開 frontend/app.html 進行測試。`);
+    });
+}
+
+// 運行啟動函式
+startServer();
