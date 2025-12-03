@@ -37,6 +37,7 @@ mongoose.connect(MONGODB_URI)
     })
     .catch(err => {
         console.error("❌ 無法連線到 MongoDB:", err);
+        process.exit(1);
     });
 
 
