@@ -274,12 +274,6 @@ app.post('/api/order/status', async (req, res) => {
 });
 
 
-// 啟動伺服器
-server.listen(PORT, () => {
-    console.log(`伺服器運行於 http://localhost:${PORT}`);
-    console.log(`請確保您的 MySQL 服務已啟動並使用了 CAMPUS.sql 腳本。`);
-    console.log(`現在您可以打開 frontend/app.html 進行測試。`);
-});
 
 
 // ===========================================
