@@ -180,7 +180,7 @@ app.get("/api/chat/:userA/:userB", async (req, res) => {
 // Express API 路由
 // ===========================================
 app.get("/api/announcement/all", async (req, res) => {
-    const list = await Announcement.find().sort({ timestamp: -1 });
+    const list = await Announcement.find().sort({ publish_date: -1 });
     res.json({ success: true, list });
 });
 
