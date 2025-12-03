@@ -108,31 +108,27 @@ io.on('connection', (socket) => {
             socket.emit('auth_error', { message: 'ID 或 Role 缺失' });
             return;
         }
-
-        // 檢查該 ID 是否已連線 (模擬單點登入)
-        if (connectedUsers[id] && connectedUsers[id] !== socket.id) {
-            // 可選：踢掉舊連線
-            // io.to(connectedUsers[id]).emit('auth_error', { message: '您的帳號已在其他地方登入' });
-            // io.sockets.sockets.get(connectedUsers[id])?.disconnect(true);
-            console.log(`用戶 ${id} 已重新連線。`);
-        }
         
         // 儲存連線資訊
         connectedUsers[id] = socket.id;
         socketIdToUser[socket.id] = { id, role };
 
-        // 讓用戶加入自己的 ID 房間 (用於點對點訊息)
         socket.join(id);
-        // 讓用戶加入角色房間 (用於廣播，例如所有 'student' 房間)
-        // 關鍵：role 房間名稱必須與前端廣播目標一致 (student, store, admin)
         socket.join(role); 
 
         console.log(`用戶 ${id} (${role}) 已註冊並加入房間: ${id}, ${role}`);
     });
 
-    // 2. 處理點對點聊天訊息
+    // 2. 處理點對點聊天訊息 (修正後的完整區塊)
     socket.on('send_chat_message', async (data) => {
-        const { senderId, receiverId, message, timestamp } = data;
+        // 從 data 中解構變數 (這裡假設前端仍然傳遞 timestamp，雖然我們在 Schema 中改用 createdAt)
+        const { senderId, receiverId, message } = data; 
+        
+        // **注意：如果前端沒有傳遞 senderId/receiverId/message，程式碼會崩潰。建議檢查。**
+        if (!senderId || !receiverId || !message) {
+             console.error('聊天訊息格式錯誤:', data);
+             return;
+        }
 
         // --- 1. 儲存到 MongoDB ---
         try {
@@ -140,19 +136,21 @@ io.on('connection', (socket) => {
                 senderId,
                 receiverId,
                 message,
-                timestamp
+                // 不再儲存 timestamp 欄位，讓 Mongoose 自動產生 createdAt
             });
         } catch (err) {
             console.error("❌ MongoDB 儲存聊天訊息失敗:", err);
         }
 
-        // --- 2. 傳給接收者 ---
+        // --- 2. 傳給接收者 (此邏輯必須在 socket.on 內部！) ---
         const receiverSocketId = connectedUsers[receiverId];
 
         if (receiverSocketId) {
+            // 直接將接收到的 data 物件傳送給接收者
             io.to(receiverId).emit('receive_chat_message', data);
             console.log(`Chat: ${senderId} -> ${receiverId}`);
         } else {
+            // 用戶離線，傳送系統訊息給發送者
             io.to(senderId).emit('receive_chat_message', { 
                 senderId: 'System', 
                 message: `用戶 ${receiverId} 離線，訊息已送出但可能無法即時收到。`,
@@ -160,7 +158,7 @@ io.on('connection', (socket) => {
                 isSystem: true
             });
         }
-    });
+    }); // <--- 修正: 確保函式在這裡正確關閉
 
 
     // 3. 用戶斷開連線
@@ -177,6 +175,7 @@ io.on('connection', (socket) => {
     });
 });
 
+// 修正: 使用 Mongoose 自動產生的 createdAt 欄位進行排序
 app.get("/api/chat/:userA/:userB", async (req, res) => {
     const { userA, userB } = req.params;
 
@@ -185,7 +184,8 @@ app.get("/api/chat/:userA/:userB", async (req, res) => {
             { senderId: userA, receiverId: userB },
             { senderId: userB, receiverId: userA }
         ]
-    }).sort({ timestamp: 1 });
+    // 修正: 使用 createdAt 排序
+    }).sort({ createdAt: 1 }); 
 
     res.json({ success: true, messages: history });
 });
@@ -199,35 +199,29 @@ app.get("/api/announcement/all", async (req, res) => {
 });
 
 
-// API 1: 處理公告廣播
+
 // API 1: 處理公告廣播
 app.post('/api/broadcast', async (req, res) => {
-    // 假設前端傳遞 title, content, created_by, target_scope 等新欄位
-    const { senderId, senderRole, target, message } = req.body; // <-- 請改成接收新欄位
+    // 修正: 假設前端現在傳遞 Schema 定義的新欄位名稱
+    const { created_by, senderRole, target_scope, title, content } = req.body; 
 
-    // ... (權限檢查維持不變) ...
+    // 使用新的變數名稱進行權限檢查
+    if (senderRole !== 'store' && senderRole !== 'admin') {
+        return res.status(403).json({ success: false, message: '權限不足' });
+    }
 
     const announcementData = {
-        title: req.body.title || '無標題公告', // 假設您從前端獲取 title
-        content: message, // 假設您將 message 欄位對應到 content
-        type: senderRole, // 假設公告類型就是發送者角色
-        target_scope: target,
-        created_by: senderId,
+        title: title || '無標題公告', // 使用 destructured 的 title
+        content: content,              // 使用 destructured 的 content
+        type: senderRole,              // 這裡使用 senderRole 來代表 type
+        target_scope: target_scope,    // 使用 target_scope
+        created_by: created_by,        // 使用 created_by
         publish_date: new Date(),
-        // createdAt 將由 Mongoose 自動產生
+        // 移除 timestamp，依賴 Mongoose 的 timestamps: true
     };
 
-    // --- 儲存到 MongoDB ---
-    try {
-        // 使用新的 Schema 欄位名稱
-        await Announcement.create(announcementData);
-    } catch (err) {
-        // ...
-    }
-    
-    // ... (廣播邏輯維持不變) ...
+    // ... (後續的 MongoDB 儲存與 Socket.IO 廣播邏輯)
 });
-
 
 // API 2: 處理訂單狀態更新及推播
 app.post('/api/order/status', async (req, res) => {
