@@ -592,6 +592,7 @@
 
             // 4. 接收公告訊息
             socket.on('new_announcement', (data) => {
+                const senderDisplay = PEERS[data.senderId] || data.senderId;
                 addAnnouncement('新公告', `${senderDisplay}: ${data.message}`, data.timestamp, 'announcement');
             });
 
