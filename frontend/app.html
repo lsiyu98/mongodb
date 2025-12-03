@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雲科大校園點餐系統-管理員端 </title>
+    <!-- 導入 Tailwind CSS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 設置 Inter 字體為預設字體 -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f7;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        /* 主要卡片容器，確保高度 */
+        .main-card {
+            min-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+        /* 讓 Chat Box 和 Announcement Box 有固定高度和美觀的滾動條 */
+        .scroll-box {
+            overflow-y: auto;
+            border-radius: 0.5rem;
+            background-color: white;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+        /* 聊天紀錄專用滾動區 */
+        .chat-scroll-box {
+            height: 400px; /* 聊天記錄固定高度 */
+            padding: 1rem;
+        }
+        /* 公告專用滾動區 */
+        .announcement-scroll-box {
+            height: 485px; /* 配合聊天區高度調整 */
+            border: 1px solid #e0e0e0;
+            padding: 1rem;
+        }
+        /* 狀態燈號 */
+        .status-dot {
+            height: 10px;
+            width: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 0.5rem;
+        }
+        .status-dot.connected { background-color: #10b981; } /* 綠色 */
+        .status-dot.disconnected { background-color: #ef4444; } /* 紅色 */
+    </style>
+</head>
+<body>
+    <div class="w-full max-w-6xl p-6 bg-white shadow-2xl rounded-xl main-card">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6 border-b-2 pb-3">
+            <main>雲科大校園點餐系統-管理員端</main>
+        </h1>
+        
+        <!-- 身份選擇與連線狀態 -->
+        <div class="p-4 bg-indigo-50 rounded-lg shadow-sm mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-3 sm:space-y-0">
+            <div class="role-selector flex flex-wrap gap-x-6 gap-y-2 items-center">
+                <label class="font-semibold text-indigo-700">選擇身份：</label>
+                <div class="flex items-center space-x-4">
+                    <input type="radio" id="student" name="role" value="student" class="text-indigo-600 focus:ring-indigo-500" checked> 
+                    <label for="student" class="text-sm text-gray-700">學生 (user101)</label>
+                    <input type="radio" id="store" name="role" value="store" class="text-indigo-600 focus:ring-indigo-500"> 
+                    <label for="store" class="text-sm text-gray-700">店家 (store202)</label>
+                    <input type="radio" id="admin" name="role" value="admin" class="text-indigo-600 focus:ring-indigo-500"> 
+                    <label for="admin" class="text-sm text-gray-700">管理員 (admin001)</label>
+                </div>
+            </div>
+            <div class="flex items-center space-x-4">
+                <button id="connectBtn" class="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition duration-150 shadow-md">
+                    連線
+                </button>
+                <p class="text-sm font-medium text-gray-700">
+                    狀態: 
+                    <!-- 注意：這裡的初始狀態沒有顏色類別，交由 JS 處理 -->
+                    <span id="status" class="font-bold">
+                        <span class="status-dot disconnected"></span>未連線
+                    </span>
+                </p>
+            </div>
+        </div>
+
+        <!-- 主內容區塊 (包含聊天和公告) -->
+        <div class="flex-grow grid grid-cols-1 xl:grid-cols-3 gap-6">
+
+            <!-- 聊天區 (兩欄結構：聯繫人列表 + 對話框) -->
+            <div id="chat-container" class="xl:col-span-2 flex flex-col bg-white rounded-xl shadow-lg border">
+                <div class="grid grid-cols-1 sm:grid-cols-3 flex-grow min-h-[500px]">
+                    <!-- 左側：聯繫人列表 -->
+                    <div class="sm:col-span-1 border-r border-gray-200 bg-gray-50 flex flex-col">
+                        <div class="p-3 bg-gray-100 border-b border-gray-200">
+                            <h2 class="text-lg font-semibold text-gray-700">聯繫人</h2>
+                        </div>
+                        <div id="contactList" class="flex-grow overflow-y-auto">
+                            <!-- 聯繫人列表將渲染在這裡 -->
+                        </div>
+                    </div>
+
+                    <!-- 右側：對話視窗 -->
+                    <div class="sm:col-span-2 flex flex-col">
+                        <div class="p-3 bg-blue-100 border-b border-gray-200">
+                            <h2 id="chatHeader" class="text-lg font-bold text-blue-800">
+                                請先選擇聯繫人並點擊連線
+                            </h2>
+                        </div>
+                        
+                        <!-- 訊息顯示區 -->
+                        <div id="chatMessages" class="chat-scroll-box flex-grow">
+                            <!-- 聊天訊息將顯示在這裡 -->
+                        </div>
+                        
+                        <!-- 輸入框 -->
+                        <div class="p-3 border-t border-gray-200 bg-white">
+                            <div class="flex space-x-2">
+                                <input type="text" id="chatInput" placeholder="輸入聊天訊息..."
+                                       class="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100" 
+                                       disabled />
+                                <button id="sendChatBtn" class="px-5 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition duration-150 shadow-md disabled:bg-gray-400" disabled>
+                                    發送
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右側：公告與訂單區塊 -->
+            <div class="xl:col-span-1 flex flex-col">
+                <!-- 公告發佈面板 (僅限 Store/Admin) -->
+                <div id="broadcastPanel" class="p-4 bg-yellow-50 border border-yellow-300 rounded-lg shadow-inner mb-4" style="display:none;">
+                    <h2 class="text-lg font-semibold text-yellow-800 mb-2 border-b border-yellow-300 pb-1">📢 公告發佈</h2>
+                    <p id="broadcastRoleStatus" class="font-medium text-yellow-700 mb-3 text-sm">目前身份: </p>
+                    <div class="flex flex-col space-y-2">
+                        <select id="targetRole" class="p-2 border border-gray-300 rounded-lg focus:ring-yellow-500 focus:border-yellow-500">
+                            <option value="all">推播給所有人</option>
+                            <option value="student">推播給所有學生</option>
+                            <option value="store">推播給所有店家</option>
+                            <option value="admin">推播給所有管理員</option>
+                        </select>
+                        <input type="text" id="announcementInput" placeholder="輸入公告訊息" 
+                               class="p-2 border border-gray-300 rounded-lg focus:ring-yellow-500 focus:border-yellow-500" />
+                        <button id="broadcastBtn" class="px-4 py-2 bg-yellow-600 text-white font-medium rounded-lg hover:bg-yellow-700 transition duration-150 shadow-md">
+                            發佈公告
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 訂單狀態模擬按鈕 -->
+                <div class="p-4 bg-indigo-100 rounded-lg shadow-inner mb-4" id="orderSimulation" style="display:none;">
+                    <p class="font-medium text-indigo-800 mb-2">📦 訂單狀態模擬</p>
+                    <div class="flex flex-wrap gap-2 items-center">
+                        <span class="text-sm">訂單#</span>
+                        <input type="number" id="orderIdInput" value="1" min="1" class="w-12 p-1 border rounded-lg text-center text-sm" />
+                        <select id="newStatusSelect" class="p-1 border rounded-lg text-sm">
+                            <option value="Preparing">製作中</option>
+                            <option value="Ready">可取餐</option>
+                            <option value="Delivered">已交付</option>
+                        </select>
+                        <button id="updateStatusBtn" class="px-3 py-1 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition duration-150">
+                            更新
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 公告推播訊息區 -->
+                <div class="flex-grow bg-gray-50 p-4 rounded-xl shadow-lg border">
+                    <h2 class="text-lg font-semibold text-gray-700 mb-3 border-b pb-2">🔔 推播訊息紀錄</h2>
+                    <div id="announcementMessages" class="announcement-scroll-box scroll-box">
+                        <!-- 公告和訂單推播訊息將顯示在這裡 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 腳本區域 -->
+    <script>
+        const API_SERVER_URL = 'http://localhost:3001';
+        let socket;
+        let currentUserId = 'user101';
+        let currentUserRole = 'student';
+        let currentPeerId = ''; // **核心變量**：目前選中的對話對象 ID
+        
+        let chatHistory = {}; // Key: 對方ID (peerId)，Value: 該對話的訊息陣列
+        let systemHistory = []; // 獨立存放系統訊息
+
+        // 預設聯繫人列表 (系統內所有用戶 ID)
+        const PEERS = {
+            'user101': '學生-張三',
+            'store202': '店家-李四',
+            'admin001': '管理員-王五',
+        };
+        const PEER_ROLES = {
+            'user101': 'student',
+            'store202': 'store',
+            'admin001': 'admin',
+        };
+
+        // --- DOM 元素快取 ---
+        const statusEl = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const broadcastPanel = document.getElementById('broadcastPanel');
+        const broadcastRoleStatus = document.getElementById('broadcastRoleStatus');
+        const targetRoleSelect = document.getElementById('targetRole');
+        const announcementInput = document.getElementById('announcementInput');
+        const broadcastBtn = document.getElementById('broadcastBtn');
+        const chatInput = document.getElementById('chatInput');
+        const sendChatBtn = document.getElementById('sendChatBtn');
+        const chatMessagesEl = document.getElementById('chatMessages');
+        const chatHeaderEl = document.getElementById('chatHeader');
+        const contactListEl = document.getElementById('contactList');
+        const announcementMessagesEl = document.getElementById('announcementMessages');
+        const orderSimulationEl = document.getElementById('orderSimulation');
+        const updateStatusBtn = document.getElementById('updateStatusBtn');
+        const orderIdInput = document.getElementById('orderIdInput');
+        const newStatusSelect = document.getElementById('newStatusSelect');
+
+        // --- 輔助函數 ---
+        
+        /**
+         * 格式化時間戳
+         */
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        /**
+         * 渲染單一訊息到 DOM
+         */
+        function _renderSingleMessage(data) {
+            const { senderId, message, timestamp, isSystem } = data;
+            const time = formatTime(timestamp);
+            const isSelf = senderId === currentUserId && !isSystem;
+
+            let messageClass = '';
+            let alignmentClass = '';
+            let nameDisplay = isSystem ? '系統' : (PEERS[senderId] || senderId);
+
+            if (isSystem) {
+                messageClass = 'text-gray-500 bg-gray-100 italic text-center';
+                alignmentClass = 'justify-center';
+            } else if (isSelf) {
+                messageClass = 'bg-blue-500 text-white self-end';
+                alignmentClass = 'justify-end';
+            } else {
+                messageClass = 'bg-white text-gray-800 border border-gray-200 shadow-sm self-start';
+                alignmentClass = 'justify-start';
+                nameDisplay = `<span class="font-medium text-sm text-gray-600">${nameDisplay}</span>`;
+            }
+
+            const messageHtml = `
+                <div class="flex ${alignmentClass} my-2">
+                    <div class="max-w-[80%] p-3 rounded-xl ${messageClass}">
+                        ${!isSelf && !isSystem ? `<div class="mb-1">${nameDisplay}</div>` : ''}
+                        <p class="text-sm">${message}</p>
+                        <div class="text-xs mt-1 ${isSelf ? 'text-blue-200' : 'text-gray-400'} text-right">${time}</div>
+                    </div>
+                </div>
+            `;
+            chatMessagesEl.innerHTML += messageHtml;
+        }
+
+        /**
+         * 核心功能：根據當前選中的聯繫人ID渲染對話框
+         */
+        function renderCurrentChat() {
+            chatMessagesEl.innerHTML = ''; // 清空聊天視窗
+
+            const peerId = currentPeerId;
+
+            if (!peerId) {
+                chatMessagesEl.innerHTML = `
+                    <div class="text-center text-gray-400 italic py-4">
+                        請點擊左側聯繫人列表開始對話...
+                    </div>
+                `;
+                chatHeaderEl.textContent = '請選擇聯繫人';
+                return;
+            }
+
+            // 系統訊息有獨立歷史記錄
+            const messages = peerId === 'System' ? systemHistory : chatHistory[peerId] || [];
+            const peerName = peerId === 'System' ? '系統訊息' : (PEERS[peerId] || peerId);
+
+            chatHeaderEl.textContent = `與 ${peerName} (${peerId}) 的對話`;
+
+            if (messages.length === 0) {
+                chatMessagesEl.innerHTML = `
+                    <div class="text-center text-gray-400 italic py-4">
+                        ${peerId === 'System' ? '連線成功，系統訊息將會出現在這裡。' : `與 ${peerName} 的新對話開始...`}
+                    </div>
+                `;
+                return;
+            }
+
+            // 渲染所有歷史訊息
+            messages.forEach(data => {
+                _renderSingleMessage(data); 
+            });
+            chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+        }
+        
+        /**
+         * 渲染聯繫人列表
+         */
+        function renderContactList() {
+            contactListEl.innerHTML = '';
+            // 過濾掉自己，生成聯繫人列表
+            const allPeers = Object.keys(PEERS).filter(id => id !== currentUserId);
+
+            // 1. 始終將 "系統訊息" 放在最頂端
+            const systemPeerId = 'System';
+            const systemEl = createContactItem(systemPeerId, '系統訊息', systemPeerId === currentPeerId);
+            contactListEl.appendChild(systemEl);
+
+            // 2. 渲染其他用戶
+            allPeers.forEach(peerId => {
+                const peerName = PEERS[peerId];
+                const isActive = peerId === currentPeerId;
+                const item = createContactItem(peerId, peerName, isActive);
+                contactListEl.appendChild(item);
+            });
+        }
+
+        /**
+         * 創建單個聯繫人列表項的 DOM 元素
+         */
+        function createContactItem(peerId, peerName, isActive) {
+            const li = document.createElement('div');
+            li.className = `p-3 cursor-pointer border-b border-gray-100 transition duration-150 ${isActive ? 'bg-blue-200 hover:bg-blue-300' : 'hover:bg-gray-100'}`;
+            li.innerHTML = `
+                <div class="font-semibold text-gray-800">${peerName}</div>
+                <div class="text-xs text-gray-500">${peerId}</div>
+            `;
+            li.setAttribute('data-peer-id', peerId);
+            li.addEventListener('click', () => selectPeer(peerId));
+            return li;
+        }
+
+        /**
+         * 選擇新的對話對象
+         * @param {string} peerId - 被選中的聯繫人 ID
+         */
+        function selectPeer(peerId) {
+            // 如果連線尚未建立，但 peerId 是有效的，我們仍然允許設置 currentPeerId
+            // 但如果選中相同的 peerId，則跳過
+            if (peerId !== currentPeerId) {
+                 currentPeerId = peerId;
+            }
+
+            renderContactList(); // 更新列表中的高亮狀態
+            renderCurrentChat(); // 載入新的對話歷史
+            
+            // 強化：根據當前連線狀態和選中對象來啟用/禁用輸入框
+            const isConnected = socket && !socket.disconnected;
+            const canSend = isConnected && peerId !== 'System';
+            
+            chatInput.disabled = !canSend; 
+            sendChatBtn.disabled = !canSend;
+        }
+
+        /**
+         * 將訊息添加到歷史記錄中並決定是否渲染
+         */
+        function addChatMessage(data) {
+            const peerId = data.isSystem ? 'System' : 
+                           (data.senderId === currentUserId ? data.receiverId : data.senderId);
+
+            // 1. 存入歷史記錄
+            if (data.isSystem) {
+                systemHistory.push(data);
+            } else {
+                if (!chatHistory[peerId]) {
+                    chatHistory[peerId] = [];
+                }
+                chatHistory[peerId].push(data);
+            }
+
+            // 2. 判斷是否需要立即渲染
+            if (peerId === currentPeerId) {
+                renderCurrentChat(); 
+            }
+        }
+
+        /**
+         * 將訊息添加到公告區
+         */
+        function addAnnouncement(title, message, timestamp, type = 'announcement') {
+            const time = formatTime(timestamp);
+            let icon = '📢';
+            let colorClass = 'bg-green-50 border-green-300 text-green-800';
+
+            if (type === 'order') {
+                icon = '📦';
+                colorClass = 'bg-indigo-50 border-indigo-300 text-indigo-800';
+            }
+
+            const announcementHtml = `
+                <div class="p-3 mb-2 rounded-lg border ${colorClass} shadow-sm">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="font-bold text-sm">${icon} ${title}</span>
+                        <span class="text-xs text-gray-500">${time}</span>
+                    </div>
+                    <p class="text-sm">${message}</p>
+                </div>
+            `;
+            announcementMessagesEl.innerHTML += announcementHtml;
+            announcementMessagesEl.scrollTop = announcementMessagesEl.scrollHeight;
+        }
+
+        /**
+         * 設置連線狀態 (修正顏色錯誤問題)
+         */
+        function setStatus(isConnected) {
+            // 修正點：移除所有狀態和顏色相關的類別，確保不殘留舊的顏色
+            statusEl.classList.remove('connected', 'disconnected', 'text-green-600', 'text-red-600');
+            
+            if (isConnected) {
+                // 設置連線狀態的 HTML 和綠色文字
+                statusEl.innerHTML = '<span class="status-dot connected"></span>已連線';
+                statusEl.classList.add('connected', 'text-green-600');
+            } else {
+                // 設置斷線狀態的 HTML 和紅色文字
+                statusEl.innerHTML = '<span class="status-dot disconnected"></span>未連線';
+                statusEl.classList.add('disconnected', 'text-red-600');
+            }
+            
+            // 確保 selectPeer 邏輯被執行，更新發送按鈕狀態
+            selectPeer(currentPeerId || 'System');
+        }
+
+        // --- Socket.IO 連線與事件處理 ---
+        
+        /**
+         * 建立 Socket.IO 連線並註冊用戶
+         */
+        function connectAndRegister() {
+            if (socket) {
+                socket.disconnect();
+                console.log('舊連線已斷開');
+            }
+            
+            // **重置狀態**
+            chatHistory = {};
+            systemHistory = [];
+
+            // 根據選中的 Radio 獲取當前用戶資訊
+            const selectedRole = document.querySelector('input[name="role"]:checked').value;
+            currentUserRole = selectedRole;
+            let initialPeerId;
+
+            switch (selectedRole) {
+                case 'student':
+                    currentUserId = 'user101';
+                    initialPeerId = 'store202'; // 學生預設對店家
+                    break;
+                case 'store':
+                    currentUserId = 'store202';
+                    initialPeerId = 'user101'; // 店家預設對學生
+                    break;
+                case 'admin':
+                    currentUserId = 'admin001';
+                    initialPeerId = 'store202'; // 管理員預設對店家
+                    break;
+                default:
+                    currentUserId = 'unknown';
+                    initialPeerId = 'System';
+            }
+            
+            currentPeerId = initialPeerId; // 設定初始對話對象 ID
+            
+            // 根據角色顯示或隱藏面板
+            updateUIPanels(currentUserRole);
+
+            // 建立聯繫人列表
+            renderContactList();
+            renderCurrentChat();
+
+            // 建立新的 Socket.IO 連線
+            socket = io(API_SERVER_URL);
+
+            socket.on('connect', () => {
+                console.log('Socket.IO 已連線');
+                setStatus(true); 
+
+                // 1. 註冊用戶 ID 和 角色
+                socket.emit('register_user', { id: currentUserId, role: currentUserRole });
+
+                // 2. 系統通知
+                addChatMessage({
+                    senderId: 'System', 
+                    message: `您已以 [${currentUserRole}] 身份 (${currentUserId}) 成功連線並註冊。`, 
+                    timestamp: new Date().getTime(), 
+                    isSystem: true
+                });
+            });
+
+            socket.on('disconnect', () => {
+                console.log('Socket.IO 已斷開');
+                setStatus(false);
+                addChatMessage({
+                    senderId: 'System', 
+                    message: '連線已斷開，請重新連線。', 
+                    timestamp: new Date().getTime(), 
+                    isSystem: true
+                });
+                renderCurrentChat();
+            });
+
+            // 3. 接收聊天訊息
+            socket.on('receive_chat_message', (data) => {
+                addChatMessage(data);
+                if (data.isSystem) {
+                     console.error(`伺服器系統錯誤: ${data.message}`);
+                }
+            });
+
+            // 4. 接收公告訊息
+            socket.on('new_announcement', (data) => {
+                addAnnouncement('新公告', `${data.sender}: ${data.message}`, data.timestamp, 'announcement');
+            });
+
+            // 5. 接收訂單狀態更新
+            socket.on('order_status_update', (data) => {
+                const message = `訂單 #${data.orderId} 的狀態已由 ${data.updater} 更新為: ${data.status}。`;
+                addAnnouncement('訂單狀態更新', message, data.timestamp, 'order');
+            });
+        }
+
+        /**
+         * 根據角色更新 UI 面板的顯示
+         */
+        function updateUIPanels(role) {
+            // 廣播面板
+            if (role === 'store' || role === 'admin') {
+                broadcastPanel.style.display = 'block';
+                broadcastRoleStatus.textContent = `目前身份: ${role} (${currentUserId})，可發佈公告。`;
+            } else {
+                broadcastPanel.style.display = 'none';
+            }
+
+            // 訂單模擬按鈕 (只有店家身份可以看到並操作)
+            if (role === 'store') {
+                orderSimulationEl.style.display = 'block';
+                updateStatusBtn.textContent = `更新訂單 #${orderIdInput.value} 狀態`;
+            } else {
+                orderSimulationEl.style.display = 'none';
+            }
+        }
+        
+        // --- 事件監聽器 ---
+
+        // 監聽連線/重新註冊按鈕
+        connectBtn.addEventListener('click', connectAndRegister);
+
+        // 監聽角色選擇變化
+        document.querySelectorAll('input[name="role"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                // 清空連線狀態，等待用戶點擊連線
+                setStatus(false);
+                updateUIPanels(radio.value);
+                renderContactList();
+                renderCurrentChat();
+            });
+        });
+
+        // 監聽點對點聊天發送按鈕
+        sendChatBtn.addEventListener('click', () => {
+            const message = chatInput.value.trim();
+            const receiverId = currentPeerId; // 從當前選中的聯繫人取得 ID
+
+            if (!socket || socket.disconnected) {
+                // 嘗試將錯誤寫入系統訊息
+                addChatMessage({
+                    senderId: 'System', 
+                    message: `[發送失敗] 連線中斷，訊息 "${message.substring(0, 10)}..." 無法發送。請先點擊「連線 / 重新註冊」按鈕建立連線。`, 
+                    timestamp: new Date().getTime(), 
+                    isSystem: true
+                });
+                selectPeer('System'); // 切換到系統訊息提醒用戶
+                return;
+            }
+
+            if (!message) {
+                // 訊息內容為空
+                console.log('訊息內容不能為空。');
+                return;
+            }
+            
+            if (!receiverId || receiverId === 'System') {
+                // 沒有選中聯繫人或選中了系統訊息
+                addChatMessage({
+                    senderId: 'System', 
+                    message: `[發送失敗] 請在左側列表選取一位聯繫人來發送訊息。`, 
+                    timestamp: new Date().getTime(), 
+                    isSystem: true
+                });
+                selectPeer('System'); // 切換到系統訊息提醒用戶
+                return;
+            }
+
+            if (message && receiverId && receiverId !== 'System') {
+                const data = {
+                    senderId: currentUserId,
+                    receiverId: receiverId, 
+                    message: message,
+                    timestamp: new Date().getTime()
+                };
+                
+                // 1. 發送給伺服器
+                socket.emit('send_chat_message', data);
+
+                // 2. 存入歷史記錄並重新渲染目前對話 (會自動執行 addChatMessage)
+                addChatMessage(data);
+
+                chatInput.value = ''; // 清空輸入框
+            }
+        });
+        
+        // 允許按 Enter 發送訊息
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !sendChatBtn.disabled) { // 確保按鈕啟用時才允許 Enter
+                e.preventDefault();
+                sendChatBtn.click();
+            }
+        });
+
+
+        // 監聽公告發布按鈕 (使用 Express API)
+        broadcastBtn.addEventListener('click', async () => {
+            const message = announcementInput.value.trim();
+            const target = targetRoleSelect.value;
+
+            if (!message) {
+                console.log('請輸入公告內容。');
+                return;
+            }
+
+            try {
+                const response = await axios.post(`${API_SERVER_URL}/api/broadcast`, {
+                    senderId: currentUserId,
+                    senderRole: currentUserRole,
+                    target: target,
+                    message: message
+                });
+
+                if (response.data.success) {
+                    addAnnouncement('系統提示', `公告已成功發送給 ${target}。`, new Date().getTime());
+                    announcementInput.value = '';
+                } else {
+                    addAnnouncement('系統錯誤', `發布失敗: ${response.data.message}`, new Date().getTime());
+                }
+
+            } catch (error) {
+                console.error('廣播 API 呼叫失敗:', error);
+                addAnnouncement('系統錯誤', `廣播呼叫失敗，請檢查後端伺服器是否運行，或權限是否足夠。`, new Date().getTime());
+            }
+        });
+
+        // 監聽訂單狀態更新按鈕 (使用 Express API)
+        updateStatusBtn.addEventListener('click', async () => {
+            const orderId = orderIdInput.value;
+            const newStatus = newStatusSelect.value;
+            
+            if (!orderId || isNaN(parseInt(orderId))) {
+                 console.log('請輸入有效的訂單 ID。');
+                 return;
+            }
+
+            try {
+                 const response = await axios.post(`${API_SERVER_URL}/api/order/status`, {
+                    senderId: currentUserId,
+                    senderRole: currentUserRole,
+                    orderId: parseInt(orderId),
+                    newStatus: newStatus
+                });
+
+                if (response.data.success) {
+                    addAnnouncement('系統提示', `訂單 #${orderId} 狀態更新推播成功: ${newStatus}。`, new Date().getTime());
+                } else {
+                    addAnnouncement('系統錯誤', `訂單狀態更新失敗: ${response.data.message}`, new Date().getTime());
+                }
+
+            } catch (error) {
+                console.error('訂單狀態 API 呼叫失敗:', error);
+                addAnnouncement('系統錯誤', `訂單狀態更新呼叫失敗，請檢查後端。`, new Date().getTime());
+            }
+        });
+        
+        // 監聽訂單 ID 輸入框的變化，即時更新按鈕文字
+        orderIdInput.addEventListener('input', () => {
+            updateStatusBtn.textContent = `更新訂單 #${orderIdInput.value || '?'} 狀態`;
+        });
+
+        // 初始 UI 設置
+        updateUIPanels('student');
+        renderContactList();
+        renderCurrentChat();
+    </script>
+</body>
+</html>
