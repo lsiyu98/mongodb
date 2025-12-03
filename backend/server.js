@@ -186,27 +186,53 @@ app.get("/api/announcement/all", async (req, res) => {
 
 
 
-// API 1: 處理公告廣播
+// API 1: 處理公告廣播 (完整修正版)
 app.post('/api/broadcast', async (req, res) => {
-    // 修正: 假設前端現在傳遞 Schema 定義的新欄位名稱
-    const { created_by, senderRole, target_scope, title, content } = req.body; 
+    // 從 req.body 中解構修正後的欄位名稱
+    const { created_by, senderRole, target_scope, title, content } = req.body; 
 
-    // 使用新的變數名稱進行權限檢查
-    if (senderRole !== 'store' && senderRole !== 'admin') {
-        return res.status(403).json({ success: false, message: '權限不足' });
-    }
+    // 權限檢查
+    if (senderRole !== 'store' && senderRole !== 'admin') {
+        return res.status(403).json({ success: false, message: '權限不足' });
+    }
 
-    const announcementData = {
-        title: title || '無標題公告', // 使用 destructured 的 title
-        content: content,              // 使用 destructured 的 content
-        type: senderRole,              // 這裡使用 senderRole 來代表 type
-        target_scope: target_scope,    // 使用 target_scope
-        created_by: created_by,        // 使用 created_by
-        publish_date: new Date(),
-        // 移除 timestamp，依賴 Mongoose 的 timestamps: true
-    };
+    const announcementData = {
+        title: title || '無標題公告', 
+        content: content, 
+        type: senderRole, 
+        target_scope: target_scope, 
+        created_by: created_by, 
+        publish_date: new Date(),
+    };
 
-    // ... (後續的 MongoDB 儲存與 Socket.IO 廣播邏輯)
+    let savedAnnouncement;
+
+    // 1. 儲存到 MongoDB (關鍵步驟)
+    try {
+        // 使用 Announcement Model 儲存資料
+        savedAnnouncement = await Announcement.create(announcementData);
+        console.log("✅ 公告已成功儲存到 MongoDB。");
+    } catch (err) {
+        console.error("❌ MongoDB 儲存公告失敗:", err);
+        // 如果儲存失敗，仍回應錯誤給前端
+        return res.status(500).json({ success: false, message: '伺服器內部錯誤：MongoDB 儲存失敗。' });
+    }
+
+    // 2. 確定推播目標
+    let targetRoom = target_scope || 'all'; 
+    
+    // 3. 通過 Socket.IO 廣播
+    // 發送的資料可以包含 Mongoose 自動生成的 ID (_id) 和時間戳
+    io.to(targetRoom).emit('receive_announcement', {
+        // 將 Mongoose 物件轉換為 JSON 以便安全傳輸，並包含所有欄位
+        ...savedAnnouncement.toJSON(), 
+        target: targetRoom 
+    });
+
+    console.log(`📡 公告已廣播到房間: ${targetRoom}`);
+    
+    // 4. 回應成功
+    res.json({ success: true, message: `公告已成功發布並廣播到 ${targetRoom}。` });
 });
 
 // API 2: 處理訂單狀態更新及推播
