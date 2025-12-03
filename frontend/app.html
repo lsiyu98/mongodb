@@ -592,7 +592,7 @@
 
             // 4. 接收公告訊息
             socket.on('new_announcement', (data) => {
-                addAnnouncement('新公告', `${data.senderId}: ${data.message}`, data.timestamp, 'announcement');
+                addAnnouncement('新公告', `${data.senderDisplay}: ${data.message}`, data.timestamp, 'announcement');
             });
 
             // 5. 接收訂單狀態更新
