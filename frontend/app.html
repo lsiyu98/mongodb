@@ -190,9 +190,7 @@
         let currentUserRole = 'student';
         let currentPeerId = ''; // **核心變量**：目前選中的對話對象 ID
         
-        let chatHistory = {}; // Key: 對方ID (peerId)，Value: 該對話的訊息陣列
-        let systemHistory = []; // 獨立存放系統訊息
-
+        
         // 預設聯繫人列表 (系統內所有用戶 ID)
         const PEERS = {
             'user101': '學生-張三',
@@ -272,91 +270,7 @@
 
         // 在 app.html 內部的 <script> 標籤中新增此函式
 
-        /**
-         * 從後端 API 載入歷史訊息
-         * @param {string} userA - 當前用戶 ID
-         * @param {string} userB - 對話對象 ID
-         */
-        async function loadChatHistory(userA, userB) {
-            if (!userA || !userB || userB === 'System') {
-                renderCurrentChat();
-                return; 
-            } 
-
-            try {
-                const response = await axios.get(`${API_SERVER_URL}/api/chat/${userA}/${userB}`);
-                
-                if (response.data.success && response.data.messages) {
-                    const messages = response.data.messages;
-                    
-                    // 1. 清空目前的緩存，準備存入新紀錄
-                    chatHistory[userB] = []; 
-                    
-                    // 2. 將歷史訊息添加到緩存中
-                    messages.forEach(msg => {
-                        // 將從 DB 獲取的訊息格式化後存入
-                        chatHistory[userB].push({
-                            senderId: msg.senderId,
-                            receiverId: msg.receiverId,
-                            message: msg.message,
-                            timestamp: new Date(msg.createdAt).getTime(), // 使用 Mongoose 的 createdAt 欄位
-                            isSystem: false
-                        });
-                    });
-                    
-                    // 3. 渲染目前的聊天視窗
-                    renderCurrentChat();
-                }
-            } catch (error) {
-                console.error('載入歷史訊息失敗:', error);
-                addChatMessage({
-                    senderId: 'System', 
-                    message: `[歷史紀錄載入失敗]：無法從伺服器載入與 ${userB} 的對話。`, 
-                    timestamp: new Date().getTime(), 
-                    isSystem: true
-                });
-                selectPeer('System'); 
-            }
-        }
-        /**
-         * 核心功能：根據當前選中的聯繫人ID渲染對話框
-         */
-        function renderCurrentChat() {
-            chatMessagesEl.innerHTML = ''; // 清空聊天視窗
-
-            const peerId = currentPeerId;
-
-            if (!peerId) {
-                chatMessagesEl.innerHTML = `
-                    <div class="text-center text-gray-400 italic py-4">
-                        請點擊左側聯繫人列表開始對話...
-                    </div>
-                `;
-                chatHeaderEl.textContent = '請選擇聯繫人';
-                return;
-            }
-
-            // 系統訊息有獨立歷史記錄
-            const messages = peerId === 'System' ? systemHistory : chatHistory[peerId] || [];
-            const peerName = peerId === 'System' ? '系統訊息' : (PEERS[peerId] || peerId);
-
-            chatHeaderEl.textContent = `與 ${peerName} (${peerId}) 的對話`;
-
-            if (messages.length === 0) {
-                chatMessagesEl.innerHTML = `
-                    <div class="text-center text-gray-400 italic py-4">
-                        ${peerId === 'System' ? '連線成功，系統訊息將會出現在這裡。' : `與 ${peerName} 的新對話開始...`}
-                    </div>
-                `;
-                return;
-            }
-
-            // 渲染所有歷史訊息
-            messages.forEach(data => {
-                _renderSingleMessage(data); 
-            });
-            chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
-        }
+        
         
         /**
          * 渲染聯繫人列表
@@ -395,8 +309,30 @@
             return li;
         }
 
-        /**
-        // 修正 selectPeer 函式
+       
+        function renderCurrentChat() {
+            chatMessagesEl.innerHTML = ''; // 清空聊天區
+
+            const peerId = currentPeerId;
+
+            // 先渲染系統訊息（可選）
+            if (peerId === 'System') {
+                systemHistory.forEach(msg => {
+                    _renderSingleMessage(msg);
+                });
+                return;
+            }
+
+            // 渲染與目前選擇對象的歷史訊息
+            if (chatHistory[peerId]) {
+                chatHistory[peerId].forEach(msg => {
+                    _renderSingleMessage(msg);
+                });
+            }
+            
+            // 滾動到最底部
+            chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+        }
 
 
         /**
@@ -410,12 +346,7 @@
 
             renderContactList(); // 更新列表中的高亮狀態
 
-            // 渲染聊天視窗
-            if (currentPeerId === 'System') {
-                renderCurrentChat();
-            } else {
-                loadChatHistory(currentUserId, currentPeerId);
-            }
+            
 
             // --- 更新輸入框與按鈕狀態 ---
             updateChatInputStatus();
@@ -660,55 +591,24 @@
         // 監聽點對點聊天發送按鈕
         sendChatBtn.addEventListener('click', () => {
             const message = chatInput.value.trim();
-            const receiverId = currentPeerId; // 從當前選中的聯繫人取得 ID
+            const receiverId = currentPeerId;
+            if (!message || !receiverId) return;
 
-            if (!socket || socket.disconnected) {
-                // 嘗試將錯誤寫入系統訊息
-                addChatMessage({
-                    senderId: 'System', 
-                    message: `[發送失敗] 連線中斷，訊息 "${message.substring(0, 10)}..." 無法發送。請先點擊「連線 / 重新註冊」按鈕建立連線。`, 
-                    timestamp: new Date().getTime(), 
-                    isSystem: true
-                });
-                selectPeer('System'); // 切換到系統訊息提醒用戶
-                return;
-            }
+            const data = {
+                senderId: currentUserId,
+                receiverId: receiverId,
+                message: message,
+                timestamp: new Date().getTime()
+            };
 
-            if (!message) {
-                // 訊息內容為空
-                console.log('訊息內容不能為空。');
-                return;
-            }
-            
-            if (!receiverId || receiverId === 'System') {
-                // 沒有選中聯繫人或選中了系統訊息
-                addChatMessage({
-                    senderId: 'System', 
-                    message: `[發送失敗] 請在左側列表選取一位聯繫人來發送訊息。`, 
-                    timestamp: new Date().getTime(), 
-                    isSystem: true
-                });
-                selectPeer('System'); // 切換到系統訊息提醒用戶
-                return;
-            }
+            // 發送給後端 Socket.IO
+            socket.emit('send_chat_message', data);
 
-            if (message && receiverId && receiverId !== 'System') {
-                const data = {
-                    senderId: currentUserId,
-                    receiverId: receiverId, 
-                    message: message,
-                    timestamp: new Date().getTime()
-                };
-                
-                // 1. 發送給伺服器
-                socket.emit('send_chat_message', data);
-
-                // 2. 存入歷史記錄並重新渲染目前對話 (會自動執行 addChatMessage)
-                addChatMessage(data);
-
-                chatInput.value = ''; // 清空輸入框
-            }
+            // 顯示在前端即可，不存歷史
+            addChatMessage(data);
+            chatInput.value = '';
         });
+
         
         // 允許按 Enter 發送訊息
         chatInput.addEventListener('keydown', (e) => {
@@ -728,10 +628,11 @@
 
             try {
                 const response = await axios.post(`${API_SERVER_URL}/api/broadcast`, {
-                    senderId: currentUserId,
+                    created_by: currentUserId,
                     senderRole: currentUserRole,
-                    target: target,
-                    message: message
+                    target_scope: targetRoleSelect.value,
+                    title: '系統公告', // 可自訂
+                    content: announcementInput.value.trim()
                 });
 
                 if (response.data.success) {
