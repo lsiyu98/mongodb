@@ -593,22 +593,19 @@
 
             // 4. 接收公告訊息
             socket.on('new_announcement', (data) => {
+                console.log("📢 收到公告資料 >>>", data);
 
-                console.log("📢 收到公告資料 >>>", data); // ⭐ 請務必確定有這行
-
-                // 保底處理：不管後端欄位是 senderId / sender / id 都接得住
-                const realSenderId =
-                    data.senderId ||
-                    data.sender ||
-                    data.id ||
-                    "未知來源";
-
+                // 後端可能只傳 senderId 或 sender
+                const realSenderId = data.senderId || data.sender || data.id || "未知來源";
                 const senderName = PEERS[realSenderId] || realSenderId;
+
+                const messageText = data.message || '[無內容]';
+                const timestamp = data.timestamp || new Date().getTime();
 
                 addAnnouncement(
                     '新公告',
-                    `${senderName}: ${data.message}`,
-                    data.timestamp,
+                    `${senderName}: ${messageText}`,
+                    timestamp,
                     'announcement'
                 );
             });
@@ -727,10 +724,7 @@
             const message = announcementInput.value.trim();
             const target = targetRoleSelect.value;
 
-            if (!message) {
-                console.log('請輸入公告內容。');
-                return;
-            }
+            if (!message) return;
 
             try {
                 const response = await axios.post(`${API_SERVER_URL}/api/broadcast`, {
@@ -746,12 +740,12 @@
                 } else {
                     addAnnouncement('系統錯誤', `發布失敗: ${response.data.message}`, new Date().getTime());
                 }
-
             } catch (error) {
                 console.error('廣播 API 呼叫失敗:', error);
-                addAnnouncement('系統錯誤', `廣播呼叫失敗，請檢查後端伺服器是否運行，或權限是否足夠。`, new Date().getTime());
+                addAnnouncement('系統錯誤', '廣播呼叫失敗，請檢查後端伺服器是否運行或權限是否足夠。', new Date().getTime());
             }
         });
+
 
         // 監聽訂單狀態更新按鈕 (使用 Express API)
         updateStatusBtn.addEventListener('click', async () => {
