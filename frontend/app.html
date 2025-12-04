@@ -628,11 +628,10 @@
 
             try {
                 const response = await axios.post(`${API_SERVER_URL}/api/broadcast`, {
-                    created_by: currentUserId,
+                    senderId: currentUserId,
                     senderRole: currentUserRole,
-                    target_scope: targetRoleSelect.value,
-                    title: '系統公告', // 可自訂
-                    content: announcementInput.value.trim()
+                    target: target,
+                    message: message
                 });
 
                 if (response.data.success) {
