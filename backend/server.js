@@ -188,55 +188,45 @@ app.get("/api/announcement/all", async (req, res) => {
 
 // API 1: 處理公告廣播 (完整修正版)
 app.post('/api/broadcast', async (req, res) => {
-    // 從 req.body 中解構修正後的欄位名稱
-    const { created_by, senderRole, target_scope, title, content } = req.body; 
+    const { created_by, senderRole, target_scope, title, content } = req.body;
 
-    // 權限檢查
-    if (senderRole !== 'store' && senderRole !== 'admin') {
-        return res.status(403).json({ success: false, message: '權限不足' });
-    }
+    // 權限檢查
+    if (!created_by || !content) {
+        return res.status(400).json({ success: false, message: '缺少必填欄位' });
+    }
 
-    const announcementData = {
-        title: title || '無標題公告', 
-        content: content, 
-        type: senderRole, 
-        target_scope: target_scope, 
-        created_by: created_by, 
-        publish_date: new Date(),
-    };
+    if (senderRole !== 'store' && senderRole !== 'admin') {
+        return res.status(403).json({ success: false, message: '權限不足' });
+    }
 
-    let savedAnnouncement;
+    const announcementData = {
+        title: title || '系統公告',
+        content,
+        type: senderRole,
+        target_scope: target_scope || 'all',
+        created_by,
+        publish_date: new Date()
+    };
 
-    // 1. 儲存到 MongoDB (關鍵步驟)
-    try {
-        // 使用 Announcement Model 儲存資料
-        savedAnnouncement = await Announcement.create(announcementData);
-        console.log("✅ 公告已成功儲存到 MongoDB。");
-    } catch (err) {
-        console.error("❌ MongoDB 儲存公告失敗:", err);
-        // 如果儲存失敗，仍回應錯誤給前端
-        return res.status(500).json({ success: false, message: '伺服器內部錯誤：MongoDB 儲存失敗。' });
-    }
+    let savedAnnouncement;
+    try {
+        savedAnnouncement = await Announcement.create(announcementData);
+        console.log("✅ 公告已儲存到 MongoDB:", savedAnnouncement._id);
+    } catch (err) {
+        console.error("❌ MongoDB 儲存公告失敗:", err);
+        return res.status(500).json({ success: false, message: 'MongoDB 儲存失敗' });
+    }
 
-    // 2. 確定推播目標
-    let targetRoom = target_scope || 'all'; 
-    
-    // 3. 通過 Socket.IO 廣播
-    // 發送的資料可以包含 Mongoose 自動生成的 ID (_id) 和時間戳
-    io.to(targetRoom).emit('new_announcement', {
-        // 將 Mongoose 物件轉換為 JSON 以便安全傳輸，並包含所有欄位
-        // 'sender' 欄位使用 created_by (發送者 ID)
-        // 'message' 欄位使用 content (公告內容)
-        sender: created_by,   // <--- 關鍵修正：將發送者 ID 賦值給 sender
-        message: content,     // <--- 關鍵修正：將公告內容賦值給 message
-        timestamp: savedAnnouncement.publish_date.getTime(), // 使用儲存的時間作為時間戳
-        target: targetRoom 
-    });
+    // 推播給指定房間
+    io.to(announcementData.target_scope).emit('new_announcement', {
+        sender: created_by,
+        message: content,
+        timestamp: savedAnnouncement.publish_date.getTime(),
+        target: announcementData.target_scope
+    });
 
-    console.log(`📡 公告已廣播到房間: ${targetRoom}`);
-    
-    // 4. 回應成功
-    res.json({ success: true, message: `公告已成功發布並廣播到 ${targetRoom}。` });
+    console.log(`📡 公告已廣播到房間: ${announcementData.target_scope}`);
+    res.json({ success: true, message: '公告已成功發布並廣播' });
 });
 
 // API 2: 處理訂單狀態更新及推播
