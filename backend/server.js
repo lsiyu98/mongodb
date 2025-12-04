@@ -36,25 +36,23 @@ const MONGODB_URI = 'mongodb://localhost:27017/CampusFoodDB';
 
 // 1. 定義公告 (Announcement) Schema 和 Model (已修正欄位以符合您的要求)
 const AnnouncementSchema = new mongoose.Schema({
-    // id 會由 Mongoose 自動產生為 _id
-    title: { type: String, required: true }, // 新增 title 欄位
-    content: { type: String, required: true }, // 對應內容
-    type: { type: String, enum: ['system', 'store', 'admin'], default: 'system' }, // 訊息類型
-    target_scope: { type: String, required: true, enum: ['all', 'student', 'store', 'admin'] }, // 廣播目標
-    publish_date: { type: Date, default: Date.now }, // 發布日期
-    created_by: { type: String, required: true }, // 發送者 ID
-    // created_at 和 updated_at 由 timestamps: true 自動產生
-}, { timestamps: true }); 
+    title: { type: String, required: true },
+    content: { type: String, required: true },
+    type: { type: String, enum: ['system', 'store', 'admin'], default: 'system' },
+    target_scope: { type: String, enum: ['all', 'student', 'store', 'admin'], required: true },
+    publish_date: { type: Date, default: Date.now },
+    created_by: { type: String, required: true },
+}, { timestamps: true });
+
 const Announcement = mongoose.model('Announcement', AnnouncementSchema);
 
-
-// 2. 定義聊天訊息 (ChatMessage) Schema 和 Model (使用 timestamps: true 簡化)
+// 聊天訊息
 const ChatMessageSchema = new mongoose.Schema({
     senderId: { type: String, required: true },
     receiverId: { type: String, required: true },
     message: { type: String, required: true },
-    // 移除 timestamp 欄位，改用 Mongoose 自動管理 createdAt
-}, { timestamps: true }); // <-- 使用 timestamps: true
+}, { timestamps: true });
+
 const ChatMessage = mongoose.model('ChatMessage', ChatMessageSchema);
 
 // 創建 Express 應用程式和 HTTP 伺服器
