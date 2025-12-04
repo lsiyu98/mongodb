@@ -398,35 +398,37 @@
         /**
         // 修正 selectPeer 函式
 
+
         /**
          * 選擇新的對話對象
          * @param {string} peerId - 被選中的聯繫人 ID
          */
         function selectPeer(peerId) {
-            // 如果連線尚未建立，但 peerId 是有效的，我們仍然允許設置 currentPeerId
-            // 但如果選中相同的 peerId，則跳過
             if (peerId !== currentPeerId) {
                 currentPeerId = peerId;
             }
 
             renderContactList(); // 更新列表中的高亮狀態
-            
-            // ***** 關鍵新增：載入歷史訊息 *****
-            if (currentPeerId !== 'System') {
-                // 只有在連線成功時才嘗試載入，但連線狀態檢查放在 loadChatHistory 內更安全
-                loadChatHistory(currentUserId, currentPeerId); 
+
+            // 渲染聊天視窗
+            if (currentPeerId === 'System') {
+                renderCurrentChat();
             } else {
-                renderCurrentChat(); // 仍然要渲染系統訊息
+                loadChatHistory(currentUserId, currentPeerId);
             }
-            // **********************************
-            
-            // 強化：根據當前連線狀態和選中對象來啟用/禁用輸入框
-            const isConnected = socket && !socket.disconnected;
-            const canSend = isConnected && peerId !== 'System';
-            
-            chatInput.disabled = !canSend; 
-            sendChatBtn.disabled = !canSend;
+
+            // --- 更新輸入框與按鈕狀態 ---
+            updateChatInputStatus();
         }
+
+        function updateChatInputStatus() {
+            const isConnected = socket && socket.connected; // 注意使用 socket.connected
+            const isSystemPeer = currentPeerId === 'System';
+            
+            chatInput.disabled = !isConnected || isSystemPeer;
+            sendChatBtn.disabled = !isConnected || isSystemPeer;
+        }
+
 
         /**
          * 將訊息添加到歷史記錄中並決定是否渲染
@@ -481,22 +483,21 @@
          * 設置連線狀態 (修正顏色錯誤問題)
          */
         function setStatus(isConnected) {
-            // 修正點：移除所有狀態和顏色相關的類別，確保不殘留舊的顏色
+    // 清除舊的狀態類別
             statusEl.classList.remove('connected', 'disconnected', 'text-green-600', 'text-red-600');
-            
+
             if (isConnected) {
-                // 設置連線狀態的 HTML 和綠色文字
                 statusEl.innerHTML = '<span class="status-dot connected"></span>已連線';
                 statusEl.classList.add('connected', 'text-green-600');
             } else {
-                // 設置斷線狀態的 HTML 和紅色文字
                 statusEl.innerHTML = '<span class="status-dot disconnected"></span>未連線';
                 statusEl.classList.add('disconnected', 'text-red-600');
             }
-            
-            // 確保 selectPeer 邏輯被執行，更新發送按鈕狀態
-            selectPeer(currentPeerId || 'System');
+
+            // 更新輸入框與按鈕狀態
+            updateChatInputStatus();
         }
+
 
         // --- Socket.IO 連線與事件處理 ---
         
@@ -592,9 +593,27 @@
 
             // 4. 接收公告訊息
             socket.on('new_announcement', (data) => {
-                const senderName = PEERS[data.senderId] || data.senderId;
-                addAnnouncement('新公告', `${senderName}: ${data.message}`, data.timestamp, 'announcement');
+
+                console.log("📢 收到公告資料 >>>", data); // ⭐ 請務必確定有這行
+
+                // 保底處理：不管後端欄位是 senderId / sender / id 都接得住
+                const realSenderId =
+                    data.senderId ||
+                    data.sender ||
+                    data.id ||
+                    "未知來源";
+
+                const senderName = PEERS[realSenderId] || realSenderId;
+
+                addAnnouncement(
+                    '新公告',
+                    `${senderName}: ${data.message}`,
+                    data.timestamp,
+                    'announcement'
+                );
             });
+
+
 
 
             // 5. 接收訂單狀態更新
