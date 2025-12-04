@@ -205,6 +205,8 @@ app.post('/api/broadcast', async (req, res) => {
 
     let savedAnnouncement;
 
+    console.log("Announcement Model:", Announcement);
+
     // 1. 儲存到 MongoDB (關鍵步驟)
     try {
         // 使用 Announcement Model 儲存資料
