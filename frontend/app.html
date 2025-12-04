@@ -592,11 +592,10 @@
 
             // 4. 接收公告訊息
             socket.on('new_announcement', (data) => {
-                const senderDisplay = PEERS[data.senderId] || data.senderId;
-                
-                // 關鍵修正：將 ${data.sender} 替換為 ${senderDisplay}
-                addAnnouncement('新公告', `${senderDisplay}: ${data.message}`, data.timestamp, 'announcement');
+                const senderName = PEERS[data.senderId] || data.senderId;
+                addAnnouncement('新公告', `${senderName}: ${data.message}`, data.timestamp, 'announcement');
             });
+
 
             // 5. 接收訂單狀態更新
             socket.on('order_status_update', (data) => {
