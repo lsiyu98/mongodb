@@ -6,6 +6,17 @@ const mysql = require('mysql2/promise');
 const cors = require('cors');
 const mongoose = require('mongoose');
 
+const AnnouncementSchema = new mongoose.Schema({
+    title: { type: String, required: true },
+    content: { type: String, required: true },
+    type: { type: String, enum: ['system', 'store', 'admin'], default: 'system' },
+    target_scope: { type: String, enum: ['all', 'student', 'store', 'admin'], required: true },
+    publish_date: { type: Date, default: Date.now },
+    created_by: { type: String, required: true },
+}, { timestamps: true });
+
+const Announcement = mongoose.model('Announcement', AnnouncementSchema);
+
 // --- 設定 ---
 const PORT = 3001;
 // 這是您在 app.html 中設定的 API URL
@@ -35,16 +46,6 @@ const MONGODB_URI = 'mongodb://localhost:27017/CampusFoodDB';
 // ===========================================
 
 // 公告 schema
-const AnnouncementSchema = new mongoose.Schema({
-    title: { type: String, required: true },
-    content: { type: String, required: true },
-    type: { type: String, enum: ['system', 'store', 'admin'], default: 'system' },
-    target_scope: { type: String, enum: ['all', 'student', 'store', 'admin'], required: true },
-    publish_date: { type: Date, default: Date.now },
-    created_by: { type: String, required: true },
-}, { timestamps: true });
-
-const Announcement = mongoose.model('Announcement', AnnouncementSchema);
 
 // 聊天訊息 schema
 const ChatMessageSchema = new mongoose.Schema({
