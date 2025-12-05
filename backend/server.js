@@ -160,37 +160,44 @@ app.get("/api/announcement/all", async (req, res) => {
 
 
 // API 1: 處理公告廣播 (使用 Announcement Model 儲存)
+// API 1: 處理公告廣播 (修正儲存與廣播變數)
 app.post('/api/broadcast', async (req, res) => {
     const { senderId, senderRole, target, message } = req.body;
 
     if (senderRole !== 'store' && senderRole !== 'admin') {
         return res.status(403).json({ success: false, message: '權限不足' });
     }
-    
+
+    // 🌟 修正：定義要儲存和廣播的資料 🌟
+    const broadcastData = {
+        sender: senderId, 
+        message: message,
+        type: 'announcement', 
+        targetRole: target, 
+        // 確保 createdAt 屬性存在，以便 Mongoose 處理
+        createdAt: new Date().getTime() 
+    };
+
     // --- 儲存到 MongoDB ---
     try {
         // 確保這裡使用 Announcement Model
-        await Announcement.create({
-            sender: senderId, 
-            message: message,
-            type: 'announcement', 
-            targetRole: target, 
-            createdAt: new Date().getTime()
-        });
+        await Announcement.create(broadcastData);
     } catch (err) {
+        // 如果儲存失敗，我們應該回覆錯誤並終止
         console.error("❌ MongoDB 儲存公告失敗:", err);
+        return res.status(500).json({ success: false, message: '伺服器內部錯誤，儲存公告失敗。' });
     }
 
     // --- 廣播給前端 ---
+    // 🌟 修正：廣播時使用正確的變數名稱 broadcastData 🌟
     if (target === 'all' || target === 'admin' || target === 'student' || target === 'store') {
-        io.to(target).emit('new_announcement', announcementData);
+        io.to(target).emit('new_announcement', broadcastData);
     } else {
-         // 如果 target 是 'all'，則直接 emit
-         io.emit('new_announcement', announcementData);
+        // 如果 target 欄位沒有指定有效房間，則直接向所有連線發送
+        io.emit('new_announcement', broadcastData);
     }
 
-
-    res.json({ success: true });
+    res.json({ success: true, message: '公告已儲存並推播。' });
 });
 
 
