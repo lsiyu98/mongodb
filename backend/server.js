@@ -6,7 +6,7 @@ const cors = require('cors');
 
 // 🌟 關鍵修正 1: 導入獨立的 MongoDB 連線模組 🌟
 // 路徑：從 backend/ 跳回上一層 (..)，進入 nosql/ 資料夾
-const connectDB = require('../../Nosql/CAMPUS.nosql'); 
+const connectDB = require('../Nosql/CAMPUS.nosql'); 
 
 // 🌟 關鍵修正 2: 導入 MongoDB Models (Models 在本地 models/ 資料夾內) 🌟
 const ChatMessage = require('./models/ChatMessage'); 
