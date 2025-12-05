@@ -629,10 +629,10 @@
             try {
                 const response = await axios.post(`${API_SERVER_URL}/api/broadcast`, {
                     created_by: currentUserId,
-                    senderRole: currentUserRole,
-                    target_scope: target,
-                    title: "公告",
-                    content: message
+                senderRole: currentUserRole,
+                target_scope: target,
+                title: "公告",
+                content: message
                 });
 
                 if (response.data.success) {
