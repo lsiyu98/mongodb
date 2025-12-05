@@ -12,6 +12,15 @@ const ChatMessage = require('./models/ChatMessage');
 
 let pool;
 
+const NotificationSchema = new mongoose.Schema({
+    title: { type: String, required: true },
+    content: { type: String, required: true },
+    type: { type: String, default: 'announcement' }, // announcement / order
+    target_scope: { type: String, default: 'all' },
+    created_by: { type: String, required: true }
+}, { timestamps: true });
+
+module.exports = mongoose.model('Notification', NotificationSchema);
 
 // --- 設定 ---
 const PORT = 3001;
