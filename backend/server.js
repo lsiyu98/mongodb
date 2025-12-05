@@ -1,290 +1,219 @@
-// 檔案名稱: server.js (最終修復版本：絕對路徑與 Mongoose 實例檢查)
-
-// 導入所需的模組
+// 引入核心套件
 const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const mysql = require('mysql2/promise');
 const cors = require('cors');
+const http = require('http'); 
+const { Server } = require("socket.io"); 
+const mongoose = require('mongoose');
+const mysql = require('mysql2/promise'); // 引入 mysql2 的 Promise 版本
 
-// 🌟 關鍵新增：Node.js 內建模組，用於建立絕對路徑 🌟
-const path = require('path');
-const mongoose = require('mongoose'); // 確保 Mongoose 實例被初始化
+// 引入 Mongoose Models
+const Notification = require('./models/Notification.js'); 
+const ChatMessage = require('./models/ChatMessage.js'); 
 
-// 🌟 關鍵修正 1: 導入 MongoDB 連線模組 (使用您確認的路徑) 🌟
-const connectDB = require('../Nosql/CAMPUS.nosql'); 
+const app = express();
+const PORT = 3001; 
 
-// 🌟 關鍵修正 2: 導入 MongoDB Models - 使用絕對路徑強制載入 🌟
-// __dirname 是當前檔案 (server.js) 所在的目錄路徑
-// path.join 會將路徑安全地組合起來
-const CHAT_MODEL_PATH = path.join(__dirname, 'models', 'ChatMessage');
-const ANNOUNCEMENT_MODEL_PATH = path.join(__dirname, 'models', 'Notification');
+// --- A. 資料庫連線 ---
 
-// 導入 Models 檔案，確保 Mongoose 實例中註冊了 'Notification' 和 'ChatMessage'
-require(CHAT_MODEL_PATH);
-require(ANNOUNCEMENT_MODEL_PATH);
+// 1. MongoDB 連線設定 (用於即時通訊資料)
+const DB_URI = 'mongodb://localhost:27017/campusfooddb'; 
 
-// 從 Mongoose 實例中直接取得已註冊的 Model
-// 這能繞過任何 require() 導致的變數賦值失敗問題
-const ChatMessage = mongoose.model('ChatMessage');
-const Announcement = mongoose.model('Notification'); // 🌟 這是解決 ReferenceError 的核心 🌟
+mongoose.connect(DB_URI)
+  .then(() => console.log('✅ MongoDB 資料庫連接成功！'))
+  .catch(err => console.error('❌ MongoDB 資料庫連接失敗:', err));
 
-// --- 診斷檢查 ---
-if (!Announcement) {
-    console.error("🚨 嚴重錯誤：無法從 Mongoose 註冊表中取得 Announcement Model！請檢查 Notification.js 檔案內容。");
-    // 您可以選擇在這裡 exit(1)，因為程式無法運行
-} else {
-    console.log("✅ Announcement Model 成功載入並定義。");
-}
-// --- 診斷檢查 END ---
-
-
-// --- 設定 ---
-const PORT = 3001;
-const FRONTEND_URL = '*'; 
-
-// MySQL 資料庫連接配置 (保留不變)
-const dbConfig = {
+// 2. MySQL 連線設定 (用於核心用戶資料)
+// !! V.I.P: 請務必修改這裡的資料庫連線參數 !!
+const mysqlConfig = {
     host: 'localhost',
-    user: 'root', 
-    password: 'yuntechdb', 
-    database: 'CampusFoodDB', 
+    user: 'root', // 您的 MySQL 用戶名
+    password: 'yuntechdb', // 您的 MySQL 密碼
+    database: 'CampusFoodDB', // 您的美食系統資料庫名稱
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 };
 
-// 創建 Express 應用程式和 HTTP 伺服器
-const app = express();
-const server = http.createServer(app);
+let mysqlPool;
+
+// 建立 MySQL 連線池
+async function connectMySQL() {
+    try {
+        mysqlPool = mysql.createPool(mysqlConfig);
+        await mysqlPool.query('SELECT 1'); // 測試連線
+        console.log('✅ MySQL 資料庫連接成功！');
+    } catch (error) {
+        console.error('❌ MySQL 資料庫連接失敗:', error);
+        // 如果 MySQL 連線失敗，不中斷伺服器，但會影響到身份驗證
+    }
+}
+connectMySQL(); // 伺服器啟動時連線 MySQL
+
+// --- B. 伺服器與中介軟體設定 ---
+const server = http.createServer(app); 
+app.use(express.json()); 
+app.use(cors({ origin: '*' })); 
+
+// 設定 Socket.IO 伺服器
 const io = new Server(server, {
-    cors: { origin: FRONTEND_URL, methods: ["GET", "POST"] }
+    cors: {
+        origin: "*", 
+        methods: ["GET", "POST"]
+    }
 });
 
-app.use(cors({ origin: FRONTEND_URL })); 
-app.use(express.json()); 
+// --- C. 核心功能：MySQL 身份查詢函數 ---
 
-const connectedUsers = {}; 
-const socketIdToUser = {};
+/**
+ * 查詢 MySQL 資料庫，驗證用戶 ID 和角色是否存在。
+ * @param {string} id - 用戶或店家 ID (例如 user101, store202)
+ * @param {string} role - 角色 (student, store, admin)
+ * @returns {boolean} - 身份驗證是否通過
+ */
+async function verifyIdentityInMySQL(id, role) {
+    if (!mysqlPool) {
+        console.warn("MySQL 連線尚未建立，跳過身份驗證。");
+        return true; // 如果 MySQL 壞了，先允許連線，避免系統癱瘓
+    }
+    
+    let tableName;
+    let columnName = 'id'; // 假設 ID 欄位名為 'id'
 
-// 創建資料庫連線池 (MySQL)
-let pool;
-try {
-    pool = mysql.createPool(dbConfig);
-    console.log("MySQL 連線池已建立。");
-} catch (error) {
-    console.error("無法建立 MySQL 連線池:", error);
-    process.exit(1);
+    // 根據角色判斷查詢哪個表格
+    if (role === 'student') {
+        tableName = 'users'; // 假設學生在 users 表格
+    } else if (role === 'store') {
+        tableName = 'stores'; // 假設店家在 stores 表格
+    } else if (role === 'admin') {
+        tableName = 'admins'; // 假設管理員在 admins 表格 (或在 users 表中標記)
+    } else {
+        return false; // 無效的角色
+    }
+
+    // 執行查詢
+    try {
+        // 為了安全，使用 ? 進行參數化查詢
+        const [rows] = await mysqlPool.query(`SELECT ${columnName} FROM ${tableName} WHERE ${columnName} = ? LIMIT 1`, [id]);
+        
+        return rows.length > 0; // 找到記錄則返回 true
+    } catch (error) {
+        console.error(`查詢 MySQL 身份失敗 (表: ${tableName}, ID: ${id}):`, error);
+        return false;
+    }
 }
 
-// ===========================================
-// MongoDB (Mongoose) 連線啟動
-// ===========================================
 
-connectDB();
+// --- D. API 路由 (管理員/店家發佈公告) ---
+
+app.post('/api/broadcast', async (req, res) => {
+    const { senderId, senderRole, target, message } = req.body; 
+    
+    // 1. 身份驗證：確保只有 admin 或 store 可以發布公告
+    if (senderRole !== 'admin' && senderRole !== 'store') {
+        return res.status(403).json({ success: false, message: '只有管理員或店家可以發佈公告' });
+    }
+    
+    // 2. 增加：在發佈前確認發送者 ID 在 MySQL 中是合法的
+    const isValidSender = await verifyIdentityInMySQL(senderId, senderRole);
+    if (!isValidSender) {
+        return res.status(403).json({ success: false, message: '發送者身份未在核心資料庫中驗證通過，禁止發佈。' });
+    }
+    
+    // 3. 檢查輸入是否完整
+    if (!target || !message) {
+        return res.status(400).json({ success: false, message: '目標或訊息不能為空' });
+    }
+    
+    // 發送者名稱/ID
+    const senderName = senderId; 
+
+    try {
+        // 4. 儲存通知到 MongoDB
+        const newNotification = new Notification({
+            sender: senderName, 
+            message: message,
+            type: 'announcement',
+            targetRole: target,
+        });
+        await newNotification.save(); 
+        
+        // 5. 透過 Socket.IO 推播給所有目標角色
+        io.to(target).emit('new_announcement', { 
+            sender: senderName, 
+            message: message,
+            timestamp: newNotification.createdAt
+        });
+
+        res.status(200).json({ success: true, message: '公告已發送並記錄' });
+    } catch (error) {
+        console.error('發送公告失敗:', error);
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({ success: false, message: `資料驗證失敗: ${error.message}` });
+        }
+        res.status(500).json({ success: false, message: '伺服器錯誤，無法儲存記錄' });
+    }
+});
 
 
-
-// ===========================================
-// Socket.IO 即時通訊邏輯
-// ===========================================
-
+// --- E. WebSocket 連線事件處理 (即時聊天) ---
 io.on('connection', (socket) => {
-    console.log(`用戶連線: ${socket.id}`);
+    console.log(`[WS] 用戶已連線: ${socket.id}`);
+    
+    // 處理註冊用戶
+    socket.on('register_user', async (userInfo) => {
+        const { id, role } = userInfo; 
+        
+        // 增加：使用 MySQL 驗證用戶身份
+        const isValid = await verifyIdentityInMySQL(id, role);
 
-    // 1. 用戶註冊和加入專屬房間 (邏輯不變)
-    socket.on('register_user', ({ id, role }) => {
-        if (!id || !role) {
-            console.error(`註冊失敗：ID 或 Role 缺失 for socket ${socket.id}`);
-            socket.emit('auth_error', { message: 'ID 或 Role 缺失' });
+        if (!isValid) {
+            console.log(`[WS] 拒絕連線：ID ${id} (角色: ${role}) 未通過 MySQL 身份驗證。`);
+            // 斷開連線，通知前端身份無效
+            socket.emit('auth_error', { message: '身份驗證失敗，請檢查ID或聯繫管理員。' });
+            socket.disconnect(true); // 強制斷線
             return;
         }
 
-        if (connectedUsers[id] && connectedUsers[id] !== socket.id) {
-            console.log(`用戶 ${id} 已重新連線。`);
-        }
-        
-        connectedUsers[id] = socket.id;
-        socketIdToUser[socket.id] = { id, role };
-
-        socket.join(id);
+        // 身份驗證成功，加入頻道
+        socket.join(id); 
         socket.join(role); 
-
-        console.log(`用戶 ${id} (${role}) 已註冊並加入房間: ${id}, ${role}`);
+        console.log(`[WS] 用戶 ${id} 已成功註冊推播頻道 (${role} & ${id})`);
     });
 
-    // 2. 處理點對點聊天訊息 (修正為使用 MongoDB)
+    // 處理聊天訊息發送
     socket.on('send_chat_message', async (data) => {
-        const { senderId, receiverId, message } = data; 
-        const senderInfo = socketIdToUser[socket.id];
-        
-        if (!senderInfo) return;
-
-        // --- 儲存到 MongoDB ---
         try {
-            // 確保這裡使用 ChatMessage Model
-            await ChatMessage.create({
-                senderId,
-                receiverId,
-                senderRole: senderInfo.role, 
-                message,
-                createdAt: new Date().getTime() 
-            });
-        } catch (err) {
-            console.error("❌ MongoDB 儲存聊天訊息失敗:", err);
+            // 聊天訊息發送前也檢查一下發送者的身份
+            const isValidSender = await verifyIdentityInMySQL(data.senderId, data.senderRole);
+            if (!isValidSender) {
+                console.warn(`[WS] 拒絕訊息發送：發送者 ID ${data.senderId} 身份無效。`);
+                socket.emit('chat_error', { message: '您的身份無效，無法發送訊息。' });
+                return;
+            }
+
+            const newChatMessage = new ChatMessage(data); 
+            await newChatMessage.save(); 
+            
+            const receiverRoom = data.receiverId; 
+            
+            io.to(receiverRoom).emit('receive_chat_message', { 
+                ...data, 
+                timestamp: newChatMessage.createdAt 
+            }); 
+            
+        } catch (error) {
+            console.error('儲存或發送聊天訊息失敗:', error);
         }
-
-        io.to(receiverId).emit('receive_chat_message', data);
     });
-
-
-    // 3. 用戶斷開連線 (邏輯不變)
+    
+    // 斷線處理
     socket.on('disconnect', () => {
-        const userData = socketIdToUser[socket.id];
-        if (userData) {
-            delete connectedUsers[userData.id];
-            delete socketIdToUser[socket.id];
-            console.log(`用戶斷開連線: ${userData.id} (${userData.role})`);
-        } else {
-            console.log(`未註冊用戶斷開連線: ${socket.id}`);
-        }
+        console.log(`[WS] 用戶已離線: ${socket.id}`);
     });
 });
 
-// ===========================================
-// Express API 路由
-// ===========================================
 
-// API 0: 獲取指定兩用戶的聊天歷史 (使用 MongoDB)
-app.get("/api/chat/:userA/:userB", async (req, res) => {
-    const { userA, userB } = req.params;
-    try {
-        const history = await ChatMessage.find({
-            $or: [
-                { senderId: userA, receiverId: userB },
-                { senderId: userB, receiverId: userA }
-            ]
-        }).sort({ createdAt: 1 });
-        res.json({ success: true, messages: history });
-    } catch (error) {
-         console.error('獲取聊天記錄失敗:', error);
-         res.status(500).json({ success: false, message: '伺服器內部錯誤。' });
-    }
-});
-
-
-// API 0.5: 獲取所有公告 (使用 Announcement Model)
-app.get("/api/announcement/all", async (req, res) => {
-    try {
-        // 確保這裡使用 Announcement Model
-        const list = await Announcement.find().sort({ createdAt: -1 });
-        res.json({ success: true, list });
-    } catch (error) {
-        console.error('獲取公告失敗:', error);
-        res.status(500).json({ success: false, message: '伺服器內部錯誤。' });
-    }
-});
-
-
-// API 1: 處理公告廣播 (使用 Announcement Model 儲存)
-// API 1: 處理公告廣播 (修正儲存與廣播變數)
-app.post('/api/broadcast', async (req, res) => {
-    const { senderId, senderRole, target, message } = req.body;
-
-    if (senderRole !== 'store' && senderRole !== 'admin') {
-        return res.status(403).json({ success: false, message: '權限不足' });
-    }
-
-    // 🌟 修正：定義要儲存和廣播的資料 🌟
-    const broadcastData = {
-        sender: senderId, 
-        message: message,
-        type: 'announcement', 
-        targetRole: target, 
-        // 確保 createdAt 屬性存在，以便 Mongoose 處理
-        createdAt: new Date().getTime() 
-    };
-
-    // --- 儲存到 MongoDB ---
-    try {
-        // 確保這裡使用 Announcement Model
-        await Announcement.create(broadcastData);
-    } catch (err) {
-        // 如果儲存失敗，我們應該回覆錯誤並終止
-        console.error("❌ MongoDB 儲存公告失敗:", err);
-        return res.status(500).json({ success: false, message: '伺服器內部錯誤，儲存公告失敗。' });
-    }
-
-    // --- 廣播給前端 ---
-    // 🌟 修正：廣播時使用正確的變數名稱 broadcastData 🌟
-    if (target === 'all' || target === 'admin' || target === 'student' || target === 'store') {
-        io.to(target).emit('new_announcement', broadcastData);
-    } else {
-        // 如果 target 欄位沒有指定有效房間，則直接向所有連線發送
-        io.emit('new_announcement', broadcastData);
-    }
-
-    res.json({ success: true, message: '公告已儲存並推播。' });
-});
-
-
-// API 2: 處理訂單狀態更新及推播 (使用 MySQL，邏輯不變)
-app.post('/api/order/status', async (req, res) => {
-    const { senderId, senderRole, orderId, newStatus } = req.body;
-
-    if (senderRole !== 'store') {
-        return res.status(403).json({ success: false, message: '權限不足，只有店家可以更新訂單狀態。' });
-    }
-
-    let connection;
-    try {
-        connection = await pool.getConnection();
-
-        const [orders] = await connection.execute(
-            'SELECT UserID, StoreID FROM `Order` WHERE OrderID = ?',
-            [orderId]
-        );
-
-        if (orders.length === 0) {
-            return res.status(404).json({ success: false, message: `找不到訂單 ID: ${orderId}` });
-        }
-        
-        const order = orders[0];
-        const targetUserId = `user${order.UserID}`; 
-        const storeId = `store${order.StoreID}`;   
-        
-        if (senderId !== storeId) {
-             return res.status(403).json({ success: false, message: '您無權更新不屬於您的訂單狀態。' });
-        }
-        
-        await connection.execute(
-            'UPDATE `Order` SET Status = ? WHERE OrderID = ?',
-            [newStatus, orderId]
-        );
-        console.log(`DB Update: 訂單 #${orderId} 狀態已更新為 ${newStatus}`);
-
-        const updateData = {
-            orderId: orderId,
-            status: newStatus,
-            timestamp: new Date().getTime(),
-            updater: senderId
-        };
-
-        io.to(targetUserId).emit('order_status_update', updateData);
-        io.to('admin').emit('order_status_update', updateData);
-
-        res.json({ success: true, message: '訂單狀態已更新並推播。' });
-
-    } catch (error) {
-        console.error('訂單狀態更新錯誤:', error);
-        res.status(500).json({ success: false, message: '伺服器內部錯誤，請檢查資料庫連線。' });
-    } finally {
-        if (connection) connection.release();
-    }
-});
-
-
-// 啟動伺服器
+// --- F. 啟動伺服器 ---
 server.listen(PORT, () => {
-    console.log(`伺服器運行於 http://localhost:${PORT}`);
+    console.log(`🚀 後端伺服器已啟動，正在監聽 http://localhost:${PORT}`);
 });
