@@ -1,8 +1,9 @@
-// backend/models/Notification.js 程式碼
+// 檔案名稱: campus-food-system/backend/models/notification.js
 
 const mongoose = require('mongoose');
 
 const notificationSchema = new mongoose.Schema({
+    // 發送公告的用戶 ID (如 admin001, store202)
     sender: {
         type: String,
         required: true,
@@ -14,11 +15,11 @@ const notificationSchema = new mongoose.Schema({
     type: {
         type: String,
         required: true,
-        enum: ['announcement', 'system'] // 訊息類型
+        enum: ['announcement', 'system'] 
     },
     targetRole: {
         type: String,
-        // 修正: 加上 'admin' 和 'all'
+        // 🌟 修正: 加上 'admin' 和 'all' 目標 🌟
         enum: ['student', 'store', 'admin', 'all'], 
         required: true
     },
@@ -28,5 +29,4 @@ const notificationSchema = new mongoose.Schema({
     }
 });
 
-// 注意：我將 Model 名稱保留為 'Notification'，與檔案名一致，以避免潛在錯誤。
 module.exports = mongoose.model('Notification', notificationSchema);
