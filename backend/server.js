@@ -6,10 +6,11 @@ const mysql = require('mysql2/promise');
 const cors = require('cors');
 const mongoose = require('mongoose');
 
-let pool;
 
 const Notification = require('./models/Notification'); 
 const ChatMessage = require('./models/ChatMessage');
+
+let pool;
 
 const AnnouncementSchema = new mongoose.Schema({
     title: { type: String, required: true },
@@ -198,51 +199,54 @@ app.get("/api/announcement/all", async (req, res) => {
 
 
 // API 1: 處理公告廣播 (完整修正版)
-// server.js (API 路由區塊)
+// server.js (API 路由區塊 - 替換掉舊的 /api/broadcast 函式)
 app.post('/api/broadcast', async (req, res) => {
-    // 參數調整：target_scope 對應到新的 targetRole
+    // 從 req.body 中解構修正後的欄位名稱
     const { created_by, senderRole, target_scope, title, content } = req.body; 
 
+    // 權限檢查
     if (senderRole !== 'store' && senderRole !== 'admin') {
         return res.status(403).json({ success: false, message: '權限不足' });
     }
 
-    // 【✅ 關鍵修正 3：對應 Notification 模型的欄位】
+    // 參數對應 Notification 模型欄位
     const notificationData = {
         sender: created_by,     // 對應 Notification.sender
         message: content,       // 對應 Notification.message
         type: 'announcement',   // 固定為 announcement 類型
-        targetRole: target_scope, // 對應 Notification.targetRole
-        // Notification 模型會自動處理 createdAt
+        targetRole: target_scope, // 對應 Notification.targetRole (目標房間)
     };
 
-    let savedNotification;
+    // 1. 儲存到 MongoDB
+    let savedNotification; // 【✅ 變數名稱修正】
     try {
-        // 修正: 使用 Notification 模型
+        // 【✅ 核心修正：使用 Notification.create】
         savedNotification = await Notification.create(notificationData); 
         console.log("✅ 公告已成功儲存到 MongoDB。");
     } catch (err) {
         console.error("❌ MongoDB 儲存公告失敗:", err);
-        // 輸出更詳細的錯誤信息 (例如驗證錯誤)
+        // 如果有驗證錯誤，會顯示欄位錯誤訊息
         if (err.name === 'ValidationError') {
              console.error('驗證錯誤詳細:', err.errors);
         }
         return res.status(500).json({ success: false, message: '伺服器內部錯誤：MongoDB 儲存失敗。' });
     }
 
-    // 確定推播目標
+    // 2. 確定推播目標
     let targetRoom = target_scope || 'all'; 
     
-    // 通過 Socket.IO 廣播
+    // 3. 通過 Socket.IO 廣播
     io.to(targetRoom).emit('new_announcement', {
         sender: created_by,   
         message: content,     
-        // 修正: 使用 Mongoose 自動生成的 createdAt 作為時間戳
-        timestamp: savedNotification.createdAt.getTime(), 
+        // 使用 Mongoose 自動生成的 createdAt 作為時間戳
+        timestamp: savedNotification.createdAt.getTime(), // 【✅ 變數名稱修正】
         target: targetRoom 
     });
 
     console.log(`📡 公告已廣播到房間: ${targetRoom}`);
+    
+    // 4. 回應成功
     res.json({ success: true, message: `公告已成功發布並廣播到 ${targetRoom}。` });
 });
 
