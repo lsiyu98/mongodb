@@ -1,19 +1,43 @@
-// 檔案名稱: server.js (最終修復版本 - 確保 Mongoose 初始化)
+// 檔案名稱: server.js (最終修復版本：絕對路徑與 Mongoose 實例檢查)
 
+// 導入所需的模組
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
-// 🌟 關鍵修復 1: 必須在主文件頂部載入 Mongoose 實例 🌟
-const mongoose = require('mongoose'); 
 
-// 🌟 關鍵修復 2: 導入 MongoDB 連線模組 (使用您確認的大寫路徑) 🌟
+// 🌟 關鍵新增：Node.js 內建模組，用於建立絕對路徑 🌟
+const path = require('path');
+const mongoose = require('mongoose'); // 確保 Mongoose 實例被初始化
+
+// 🌟 關鍵修正 1: 導入 MongoDB 連線模組 (使用您確認的路徑) 🌟
 const connectDB = require('../Nosql/CAMPUS.nosql'); 
 
-// 🌟 關鍵修復 3: 導入 MongoDB Models (這就是定義 Announcement 的關鍵) 🌟
-const ChatMessage = require('./models/ChatMessage'); 
-const Announcement = require('./models/Notification'); 
+// 🌟 關鍵修正 2: 導入 MongoDB Models - 使用絕對路徑強制載入 🌟
+// __dirname 是當前檔案 (server.js) 所在的目錄路徑
+// path.join 會將路徑安全地組合起來
+const CHAT_MODEL_PATH = path.join(__dirname, 'models', 'ChatMessage');
+const ANNOUNCEMENT_MODEL_PATH = path.join(__dirname, 'models', 'Notification');
+
+// 導入 Models 檔案，確保 Mongoose 實例中註冊了 'Notification' 和 'ChatMessage'
+require(CHAT_MODEL_PATH);
+require(ANNOUNCEMENT_MODEL_PATH);
+
+// 從 Mongoose 實例中直接取得已註冊的 Model
+// 這能繞過任何 require() 導致的變數賦值失敗問題
+const ChatMessage = mongoose.model('ChatMessage');
+const Announcement = mongoose.model('Notification'); // 🌟 這是解決 ReferenceError 的核心 🌟
+
+// --- 診斷檢查 ---
+if (!Announcement) {
+    console.error("🚨 嚴重錯誤：無法從 Mongoose 註冊表中取得 Announcement Model！請檢查 Notification.js 檔案內容。");
+    // 您可以選擇在這裡 exit(1)，因為程式無法運行
+} else {
+    console.log("✅ Announcement Model 成功載入並定義。");
+}
+// --- 診斷檢查 END ---
+
 
 // --- 設定 ---
 const PORT = 3001;
