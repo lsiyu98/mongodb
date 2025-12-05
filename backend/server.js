@@ -1,41 +1,17 @@
+// server.js 程式碼
+
 // 導入所需的模組
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
+// 新增: 導入 Mongoose
 const mongoose = require('mongoose'); 
 
-// ===========================================
-// Mongoose / MongoDB 模型定義 (遵循您的檔案名稱)
-// ===========================================
-
-// 公告 schema (對應 notification.js)
-const NotificationSchema = new mongoose.Schema({
-    sender: { type: String, required: true }, // 發布者ID
-    message: { type: String, required: true }, // 公告內容 (content)
-    type: { type: String, default: 'announcement', enum: ['announcement', 'system'] }, 
-    targetRole: { type: String, default: 'all', enum: ['student', 'store', 'all'] }, // 推播目標
-}, { timestamps: true });
-
-// 【✅ 保持使用 Notification 模型名稱】
-const Notification = mongoose.model('Notification', NotificationSchema);
-
-// 聊天訊息 schema (對應 chatmessage.js)
-const ChatMessageSchema = new mongoose.Schema({
-    senderId: { type: String, required: true },
-    receiverId: { type: String, required: true },
-    message: { type: String, required: true },
-    // 確保有 senderRole 欄位來通過驗證
-    senderRole: { 
-        type: String, 
-        enum: ['student', 'store', 'admin'], 
-        required: true 
-    }, 
-}, { timestamps: true }); 
-
-const ChatMessage = mongoose.model('ChatMessage', ChatMessageSchema);
-
+// 新增: 導入 MongoDB Models
+const ChatMessage = require('./ChatMessage'); 
+const Announcement = require('./Notification'); // 由於您的原始檔名是 Notification.js，這裡保持一致
 
 // --- 設定 ---
 const PORT = 3001;
@@ -52,9 +28,8 @@ const dbConfig = {
     queueLimit: 0
 };
 
+// MongoDB 連線配置
 const MONGODB_URI = 'mongodb://localhost:27017/CampusFoodDB';
-
-let pool; 
 
 // 創建 Express 應用程式和 HTTP 伺服器
 const app = express();
@@ -72,10 +47,30 @@ const io = new Server(server, {
 app.use(cors({ origin: FRONTEND_URL })); 
 app.use(express.json()); 
 
-// 儲存已連線用戶的資訊
+// 儲存已連線用戶的資訊 (UserID -> SocketID)
 const connectedUsers = {}; 
+// 儲存 SocketID -> 用戶資訊 (UserID, Role)
 const socketIdToUser = {};
 
+// 創建資料庫連線池 (MySQL)
+let pool;
+try {
+    pool = mysql.createPool(dbConfig);
+    console.log("MySQL 連線池已建立。");
+} catch (error) {
+    console.error("無法建立 MySQL 連線池:", error);
+    process.exit(1);
+}
+
+// ===========================================
+// MongoDB (Mongoose) 連線啟動
+// ===========================================
+
+mongoose.connect(MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log('✅ MongoDB 連線成功'))
+    .catch(err => {
+        console.error('❌ MongoDB 連線失敗:', err);
+    });
 
 // ===========================================
 // Socket.IO 即時通訊邏輯
@@ -84,7 +79,7 @@ const socketIdToUser = {};
 io.on('connection', (socket) => {
     console.log(`用戶連線: ${socket.id}`);
 
-    // 1. 用戶註冊和加入專屬房間
+    // 1. 用戶註冊和加入專屬房間 (邏輯不變)
     socket.on('register_user', ({ id, role }) => {
         if (!id || !role) {
             console.error(`註冊失敗：ID 或 Role 缺失 for socket ${socket.id}`);
@@ -105,54 +100,46 @@ io.on('connection', (socket) => {
         console.log(`用戶 ${id} (${role}) 已註冊並加入房間: ${id}, ${role}`);
     });
 
-    // 2. 處理點對點聊天訊息 (包含儲存到 MongoDB)
+    // 2. 處理點對點聊天訊息 (修正為使用 MongoDB)
     socket.on('send_chat_message', async (data) => {
         const { senderId, receiverId, message } = data;
-        // 獲取 senderRole
-        const senderRole = socketIdToUser[socket.id]?.role; 
-        
-        if (!senderId || !receiverId || !message || !senderRole) {
-             console.error('聊天訊息格式錯誤或角色缺失:', data);
-             return;
+        const senderInfo = socketIdToUser[socket.id];
+
+        if (!senderInfo) {
+            console.error('發送聊天訊息失敗：找不到發送者資訊');
+            return;
         }
 
         // --- 1. 儲存到 MongoDB ---
         try {
-            const savedMessage = await ChatMessage.create({
+            await ChatMessage.create({
                 senderId,
                 receiverId,
+                senderRole: senderInfo.role, // 從連線資訊中取得角色
                 message,
-                senderRole, // 傳入 senderRole
+                createdAt: new Date().getTime()
             });
-            console.log(`✅ Chat Message Stored: ${senderId} (${senderRole}) -> ${receiverId} at ${savedMessage.createdAt}`);
         } catch (err) {
             console.error("❌ MongoDB 儲存聊天訊息失敗:", err);
         }
 
         // --- 2. 傳給接收者 ---
-        const receiverSocketId = connectedUsers[receiverId];
-        const pushData = {
-            senderId, 
-            receiverId, 
-            message,
-            timestamp: new Date().getTime(),
-        };
+        io.to(receiverId).emit('receive_chat_message', data);
+        console.log(`Chat: ${senderId} -> ${receiverId}`);
 
-        if (receiverSocketId) {
-            io.to(receiverId).emit('receive_chat_message', pushData);
-            console.log(`Chat: ${senderId} -> ${receiverId} (Realtime)`);
-        } else {
+        // 通知發送者對方離線
+        if (!connectedUsers[receiverId]) {
             io.to(senderId).emit('receive_chat_message', { 
                 senderId: 'System', 
-                message: `用戶 ${receiverId} 離線，訊息已儲存。`,
+                message: `用戶 ${receiverId} 離線，訊息已送出但可能無法即時收到。`,
                 timestamp: new Date().getTime(),
                 isSystem: true
             });
-             console.log(`Chat: ${senderId} -> ${receiverId} (Offline, Message Saved)`);
         }
     });
 
-    // 3. 用戶斷開連線
+
+    // 3. 用戶斷開連線 (邏輯不變)
     socket.on('disconnect', () => {
         const userData = socketIdToUser[socket.id];
         if (userData) {
@@ -169,114 +156,75 @@ io.on('connection', (socket) => {
 // Express API 路由
 // ===========================================
 
-// API 3: 獲取聊天記錄
-app.get("/api/chat/history", async (req, res) => {
-    const { userId, receiverId } = req.query; 
-
-    if (!userId || !receiverId) {
-         return res.status(400).json({ success: false, message: '缺少 userId 或 receiverId 參數。' });
-    }
+// API 0: 獲取指定兩用戶的聊天歷史 (使用 MongoDB)
+app.get("/api/chat/:userA/:userB", async (req, res) => {
+    const { userA, userB } = req.params;
 
     try {
         const history = await ChatMessage.find({
             $or: [
-                { senderId: userId, receiverId: receiverId },
-                { senderId: receiverId, receiverId: userId }
+                { senderId: userA, receiverId: userB },
+                { senderId: userB, receiverId: userA }
             ]
-        }).sort({ createdAt: 1 });
+        }).sort({ createdAt: 1 }); // 依建立時間升序排列
 
-        const formattedHistory = history.map(msg => ({
-            senderId: msg.senderId,
-            receiverId: msg.receiverId,
-            message: msg.message,
-            senderRole: msg.senderRole,
-            timestamp: msg.createdAt.getTime(),
-        }));
-
-        res.json({ success: true, history: formattedHistory });
+        res.json({ success: true, messages: history });
     } catch (error) {
-        console.error("查詢聊天記錄失敗:", error);
-        res.status(500).json({ success: false, message: '伺服器內部錯誤：查詢聊天記錄失敗。' });
+         console.error('獲取聊天記錄失敗:', error);
+         res.status(500).json({ success: false, message: '伺服器內部錯誤，無法獲取聊天記錄。' });
     }
 });
 
-
-// API 4: 獲取所有公告 (歷史記錄)
-// 【✅ 修正：使用 Notification 模型】
-app.get("/api/notification/history", async (req, res) => {
+// API 0.5: 獲取所有公告 (使用 MongoDB)
+app.get("/api/announcement/all", async (req, res) => {
     try {
-        const history = await Notification.find().sort({ createdAt: -1 }); 
-        
-        const formattedHistory = history.map(item => ({
-            sender: item.sender,
-            message: item.message,
-            timestamp: item.createdAt.getTime(),
-            target: item.targetRole,
-            type: item.type
-        }));
-
-        res.json({ success: true, list: formattedHistory });
+        const list = await Announcement.find().sort({ createdAt: -1 });
+        res.json({ success: true, list });
     } catch (error) {
-        console.error("查詢公告失敗:", error);
-        res.status(500).json({ success: false, message: '伺服器內部錯誤：查詢公告失敗。' });
+        console.error('獲取公告失敗:', error);
+        res.status(500).json({ success: false, message: '伺服器內部錯誤，無法獲取公告。' });
     }
 });
 
 
-// API 1: 處理公告廣播
+// API 1: 處理公告廣播 (修正為使用 MongoDB)
 app.post('/api/broadcast', async (req, res) => {
-    const { senderId, senderRole, target: targetRole, message } = req.body;
+    const { senderId, senderRole, target, message } = req.body;
 
     if (senderRole !== 'store' && senderRole !== 'admin') {
         return res.status(403).json({ success: false, message: '權限不足' });
     }
-    if (!message) {
-         return res.status(400).json({ success: false, message: '公告內容不得為空。' });
-    }
 
-    const notificationData = { // 變數名稱使用 notificationData 保持語義一致
-        sender: senderId, 
-        message: message, 
-        type: 'announcement',
-        targetRole: targetRole || 'all',
+    const announcementData = {
+        sender: senderId,
+        message: message,
+        type: 'announcement', 
+        targetRole: target,
+        createdAt: new Date().getTime()
     };
 
     // --- 儲存到 MongoDB ---
-    let savedNotification;
     try {
-        // 【✅ 修正：使用 Notification.create】
-        savedNotification = await Notification.create(notificationData);
-        console.log("✅ 公告已成功儲存到 MongoDB。");
+        await Announcement.create(announcementData);
     } catch (err) {
         console.error("❌ MongoDB 儲存公告失敗:", err);
-         if (err.name === 'ValidationError') {
-            return res.status(400).json({ success: false, message: '公告資料驗證失敗。' });
-        }
-        return res.status(500).json({ success: false, message: '伺服器內部錯誤：MongoDB 儲存失敗。' });
     }
 
     // --- 廣播給前端 ---
-    let targetRoom = targetRole || 'all'; 
-    
-    io.to(targetRoom).emit('new_announcement', {
-        sender: senderId,  
-        message: message,    
-        timestamp: savedNotification.createdAt.getTime(),
-        target: targetRole 
-    });
-    console.log(`📡 公告已廣播到房間: ${targetRoom}`);
+    if (target === 'all' || target === 'admin' || target === 'student' || target === 'store') {
+        io.to(target).emit('new_announcement', announcementData);
+    } else {
+         // 如果 target 是 'all'，則直接 emit
+         io.emit('new_announcement', announcementData);
+    }
 
-    res.json({ success: true, message: `公告已成功發布並廣播到 ${targetRoom}。` });
+
+    res.json({ success: true });
 });
 
 
-// API 2: 處理訂單狀態更新及推播
+// API 2: 處理訂單狀態更新及推播 (使用 MySQL，邏輯不變)
 app.post('/api/order/status', async (req, res) => {
-    // ⚠️ 此 API 依賴 MySQL 連線池 (pool)
-    if (!pool) {
-         return res.status(503).json({ success: false, message: 'MySQL 連線尚未初始化或已失敗。' });
-    }
-
     const { senderId, senderRole, orderId, newStatus } = req.body;
 
     if (senderRole !== 'store') {
@@ -331,35 +279,9 @@ app.post('/api/order/status', async (req, res) => {
 });
 
 
-// ===========================================
-// 統一的伺服器啟動邏輯 (使用 async/await)
-// ===========================================
-async function startServer() {
-    // 1. 啟動 MySQL 連線 (等待完成)
-    try {
-        pool = await mysql.createPool(dbConfig);
-        console.log("✅ MySQL 連線池已建立。");
-    } catch (error) {
-        console.error("❌ 無法建立 MySQL 連線池:", error);
-        process.exit(1); 
-    }
-
-    // 2. 啟動 MongoDB 連線 (強制等待連線結果)
-    try {
-        await mongoose.connect(MONGODB_URI); 
-        console.log("✅ MongoDB 連線成功。"); 
-    } catch (err) {
-        console.error("❌ 無法連線到 MongoDB:", err); 
-        console.error("請確認您的 MongoDB 服務 (mongod) 正在運行。");
-        process.exit(1); // 連線失敗，強制程序退出
-    }
-
-    // 3. 所有連線成功後，啟動 HTTP 伺服器
-    server.listen(PORT, () => {
-        console.log(`伺服器運行於 http://localhost:${PORT}`);
-        console.log(`**請使用 'http-server' 等工具來載入 app.html 進行測試。**`);
-    });
-}
-
-// 運行啟動函式
-startServer();
+// 啟動伺服器
+server.listen(PORT, () => {
+    console.log(`伺服器運行於 http://localhost:${PORT}`);
+    console.log(`請確保您的 MongoDB 和 MySQL 服務皆已啟動。`);
+    console.log(`現在您可以打開 frontend/app.html 進行測試。`);
+});
