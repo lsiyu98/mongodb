@@ -1,11 +1,15 @@
+// 檔案名稱: server.js (最終修正版)
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
+// 🌟 關鍵修正：必須在主文件頂部載入 Mongoose 🌟
+const mongoose = require('mongoose'); 
 
 // 🌟 關鍵修正 1: 導入獨立的 MongoDB 連線模組 🌟
-// 路徑：從 backend/ 跳回上一層 (..)，進入 nosql/ 資料夾
+// 路徑：從 backend/ 跳回上一層 (..)，進入 Nosql/ 資料夾
 const connectDB = require('../Nosql/CAMPUS.nosql'); 
 
 // 🌟 關鍵修正 2: 導入 MongoDB Models (Models 在本地 models/ 資料夾內) 🌟
@@ -14,6 +18,7 @@ const Announcement = require('./models/Notification'); // 檔案名為 notificat
 
 // --- 設定 ---
 const PORT = 3001;
+// ... (後續程式碼接續)
 const FRONTEND_URL = '*'; 
 
 // MySQL 資料庫連接配置 (保留不變)
