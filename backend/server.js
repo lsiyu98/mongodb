@@ -13,7 +13,6 @@ const ChatMessage = require('./models/ChatMessage');
 let pool;
 
 
-
 // --- 設定 ---
 const PORT = 3001;
 // 這是您在 app.html 中設定的 API URL
