@@ -1,0 +1,26 @@
+// 檔案名稱: campus-food-system/nosql/campus.nosql
+
+const mongoose = require('mongoose');
+
+// MongoDB 連線 URI (與您的 server.js 設置的資料庫名稱一致)
+const MONGODB_URI = 'mongodb://localhost:27017/CampusFoodDB';
+
+/**
+ * 建立並維護 MongoDB 資料庫連線
+ * 匯出此函式供 server.js 呼叫
+ */
+const connectDB = async () => {
+    try {
+        await mongoose.connect(MONGODB_URI, { 
+            // 推薦使用這些選項以確保穩定性
+            useNewUrlParser: true, 
+            useUnifiedTopology: true 
+        });
+        console.log('✅ MongoDB 連線成功 (campus.nosql)');
+    } catch (err) {
+        console.error('❌ MongoDB 連線失敗:', err);
+        // 如果連線失敗，建議發出警告
+    }
+};
+
+module.exports = connectDB;
