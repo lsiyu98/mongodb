@@ -21,7 +21,7 @@ const NotificationSchema = new mongoose.Schema({
     created_by: { type: String, required: true },
 }, { timestamps: true });
 
-const Announcement = mongoose.model('Notification',NotificationSchemaSchema);
+const NotificationModel = mongoose.model('Notification',NotificationSchema);
 
 // --- 設定 ---
 const PORT = 3001;
