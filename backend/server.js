@@ -187,8 +187,8 @@ app.get("/api/chat/:userA/:userB", async (req, res) => {
 // server.js (API 路由區塊)
 app.get("/api/announcement/all", async (req, res) => {
     try {
-        // 修正: 使用 Notification 模型，並以 createdAt 排序
-        const list = await Notification.find().sort({ createdAt: -1 });
+        // 【✅ 修正：從 Announcement 換成 Notification】
+        const list = await Notification.find().sort({ createdAt: -1 }); 
         res.json({ success: true, list });
     } catch (error) {
          console.error("查詢公告失敗:", error);
