@@ -4,20 +4,19 @@ const { Server } = require('socket.io');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 
-// 🌟 關鍵修正: 導入獨立的 MongoDB 連線模組 🌟
-// 路徑：從 backend 跳回上一層 (..)，進入 nosql 資料夾
+// 🌟 關鍵修正 1: 導入獨立的 MongoDB 連線模組 🌟
+// 路徑：從 backend/ 跳回上一層 (..)，進入 nosql/ 資料夾
 const connectDB = require('../../nosql/campus.nosql'); 
 
-// 🌟 關鍵修正: 導入 Models (Models 在本地 models 資料夾內) 🌟
+// 🌟 關鍵修正 2: 導入 MongoDB Models (Models 在本地 models/ 資料夾內) 🌟
 const ChatMessage = require('./models/ChatMessage'); 
-const Announcement = require('./models/Notification'); 
-
+const Announcement = require('./models/Notification'); // 檔案名為 notification.js
 
 // --- 設定 ---
 const PORT = 3001;
 const FRONTEND_URL = '*'; 
 
-// MySQL 資料庫連接配置 (不變)
+// MySQL 資料庫連接配置 (保留不變)
 const dbConfig = {
     host: 'localhost',
     user: 'root', 
@@ -57,11 +56,7 @@ try {
 
 connectDB();
 
-mongoose.connect(MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-    .then(() => console.log('✅ MongoDB 連線成功'))
-    .catch(err => {
-        console.error('❌ MongoDB 連線失敗:', err);
-    });
+
 
 // ===========================================
 // Socket.IO 即時通訊邏輯
