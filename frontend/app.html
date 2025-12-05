@@ -203,6 +203,9 @@
             'admin001': 'admin',
         };
 
+        let chatHistory = {}; 
+        let systemHistory = []; // 用於儲存系統訊息
+        
         // --- DOM 元素快取 ---
         const statusEl = document.getElementById('status');
         const connectBtn = document.getElementById('connectBtn');

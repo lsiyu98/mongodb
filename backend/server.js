@@ -23,11 +23,16 @@ const Notification = mongoose.model('Notification', NotificationSchema);
 
 // 聊天訊息 schema (ChatMessage)
 const ChatMessageSchema = new mongoose.Schema({
-    senderId: { type: String, required: true },
-    receiverId: { type: String, required: true },
-    message: { type: String, required: true },
-    // senderRole: { type: String, enum: ['student', 'store'] }, // 根據您的 ChatMessage.js，這裡可以選擇性加入，但目前 Socket.IO 儲存時未提供，故暫不強制要求
-}, { timestamps: true }); // createdAt 將作為 timestamp 使用
+    senderId: { type: String, required: true },
+    receiverId: { type: String, required: true },
+    message: { type: String, required: true },
+    // 【✅ 修正：新增 senderRole 欄位，確保模型與 ChatMessage.js 一致】
+    senderRole: { 
+        type: String, 
+        enum: ['student', 'store', 'admin'], 
+        required: true 
+    }, 
+}, { timestamps: true }); 
 
 const ChatMessage = mongoose.model('ChatMessage', ChatMessageSchema);
 
@@ -98,24 +103,30 @@ io.on('connection', (socket) => {
 
     // 2. 處理點對點聊天訊息 (包含儲存到 MongoDB)
     socket.on('send_chat_message', async (data) => {
-        const { senderId, receiverId, message } = data; 
+        const { senderId, receiverId, message } = data; 
         
-        if (!senderId || !receiverId || !message) {
-             console.error('聊天訊息格式錯誤:', data);
-             return;
-        }
+        // 【✅ 獲取發送者角色，用於 MongoDB 儲存】
+        const senderRole = socketIdToUser[socket.id]?.role; 
+        
+        if (!senderId || !receiverId || !message || !senderRole) {
+            console.error('聊天訊息格式錯誤或角色缺失:', data);
+            return;
+        }
 
-        // --- 1. 儲存到 MongoDB ---
-        try {
-            const savedMessage = await ChatMessage.create({
-                senderId,
-                receiverId,
-                message,
-            });
-             console.log(`✅ Chat Message Stored: ${senderId} -> ${receiverId} at ${savedMessage.createdAt}`);
-        } catch (err) {
-            console.error("❌ MongoDB 儲存聊天訊息失敗:", err);
-        }
+        // --- 1. 儲存到 MongoDB ---
+        try {
+            const savedMessage = await ChatMessage.create({
+                senderId,
+                receiverId,
+                message,
+                senderRole, // 【✅ 傳入 senderRole】
+            });
+            console.log(`✅ Chat Message Stored: ${senderId} (${senderRole}) -> ${receiverId}`);
+        } catch (err) {
+            console.error("❌ MongoDB 儲存聊天訊息失敗:", err); // <--- 這次如果有錯，請提供完整的 err 內容
+        }
+    
+    // ... (後續的推播邏輯不變)
 
         // --- 2. 傳給接收者 ---
         const receiverSocketId = connectedUsers[receiverId];
