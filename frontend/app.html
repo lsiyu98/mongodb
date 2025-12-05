@@ -205,7 +205,7 @@
 
         let chatHistory = {}; 
         let systemHistory = []; // 用於儲存系統訊息
-        
+
         // --- DOM 元素快取 ---
         const statusEl = document.getElementById('status');
         const connectBtn = document.getElementById('connectBtn');
@@ -356,11 +356,11 @@
         }
 
         function updateChatInputStatus() {
-            const isConnected = socket && socket.connected; // 注意使用 socket.connected
-            const isSystemPeer = currentPeerId === 'System';
-            
-            chatInput.disabled = !isConnected || isSystemPeer;
-            sendChatBtn.disabled = !isConnected || isSystemPeer;
+            const isConnected = socket && !socket.disconnected;
+            const canSend = isConnected && peerId !== 'System';
+
+            chatInput.disabled = !canSend; 
+            sendChatBtn.disabled = !canSend;
         }
 
 
