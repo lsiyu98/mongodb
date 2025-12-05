@@ -30,11 +30,11 @@ const MONGODB_URI = 'mongodb://localhost:27017/CampusFoodDB';
 // Mongoose / MongoDB 連線與 Model 定義
 // ===========================================
 
+// ===========================================
+// Mongoose / MongoDB 模型
+// ===========================================
 
-
-
-
-// 1. 定義公告 (Announcement) Schema 和 Model (已修正欄位以符合您的要求)
+// 公告 schema
 const AnnouncementSchema = new mongoose.Schema({
     title: { type: String, required: true },
     content: { type: String, required: true },
@@ -46,7 +46,7 @@ const AnnouncementSchema = new mongoose.Schema({
 
 const Announcement = mongoose.model('Announcement', AnnouncementSchema);
 
-// 聊天訊息
+// 聊天訊息 schema
 const ChatMessageSchema = new mongoose.Schema({
     senderId: { type: String, required: true },
     receiverId: { type: String, required: true },
