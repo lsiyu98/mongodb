@@ -12,16 +12,7 @@ const ChatMessage = require('./models/ChatMessage');
 
 let pool;
 
-const NotificationSchema = new mongoose.Schema({
-    title: { type: String, required: true },
-    content: { type: String, required: true },
-    type: { type: String, enum: ['system', 'store', 'admin'], default: 'system' },
-    target_scope: { type: String, enum: ['all', 'student', 'store', 'admin'], required: true },
-    publish_date: { type: Date, default: Date.now },
-    created_by: { type: String, required: true },
-}, { timestamps: true });
 
-const NotificationModel = mongoose.model('Notification',NotificationSchema);
 
 // --- 設定 ---
 const PORT = 3001;
@@ -211,10 +202,11 @@ app.post('/api/broadcast', async (req, res) => {
 
     // 參數對應 Notification 模型欄位
     const notificationData = {
-        sender: created_by,     // 對應 Notification.sender
-        message: content,       // 對應 Notification.message
-        type: 'announcement',   // 固定為 announcement 類型
-        targetRole: target_scope, // 對應 Notification.targetRole (目標房間)
+        title: title || '公告',      // 從前端 req.body.title
+        content: content,
+        type: 'announcement',
+        target_scope: target_scope || 'all',
+        created_by: created_by
     };
 
     // 1. 儲存到 MongoDB
