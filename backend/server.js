@@ -321,7 +321,10 @@ async function startServer() {
 
     // 2. 啟動 MongoDB 連線 (強制等待連線結果)
     try {
-        await mongoose.connect(MONGODB_URI);
+        await mongoose.connect(MONGODB_URI, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+        });
         console.log("MongoDB 連線成功。"); 
     } catch (err) {
         console.error("❌ 無法連線到 MongoDB:", err); 
