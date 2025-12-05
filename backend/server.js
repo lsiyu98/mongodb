@@ -203,20 +203,15 @@ app.post('/api/broadcast', async (req, res) => {
         publish_date: new Date(),
     };
 
-    let savedAnnouncement;
-
-    console.log("Announcement Model:", Announcement);
-
-    // 1. 儲存到 MongoDB (關鍵步驟)
-    try {
-        // 使用 Announcement Model 儲存資料
-        savedAnnouncement = await Announcement.create(announcementData);
-        console.log("✅ 公告已成功儲存到 MongoDB。");
-    } catch (err) {
-        console.error("❌ MongoDB 儲存公告失敗:", err);
-        // 如果儲存失敗，仍回應錯誤給前端
-        return res.status(500).json({ success: false, message: '伺服器內部錯誤：MongoDB 儲存失敗。' });
-    }
+    // 確保 Announcement 模型在這裡已經定義
+    let savedAnnouncement;
+    try {
+        savedAnnouncement = await Announcement.create(announcementData);
+        console.log("✅ 公告已成功儲存到 MongoDB。");
+    } catch (err) {
+        console.error("❌ MongoDB 儲存公告失敗:", err);
+        return res.status(500).json({ success: false, message: '伺服器內部錯誤：MongoDB 儲存失敗。' });
+    }
 
     // 2. 確定推播目標
     let targetRoom = target_scope || 'all'; 
