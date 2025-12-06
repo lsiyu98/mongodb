@@ -277,7 +277,38 @@ app.get("/api/announcement/all", async (req, res) => {
 
 
 // 啟動伺服器
-server.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-    console.log(`Socket.IO is listening on http://localhost:${PORT}`);
-});
+const startServer = async () => {
+    try {
+        // --- 修正點 1: 等待 Mongoose 連線完成 ---
+        // 由於 connectDB() 已經在檔案開頭被呼叫，這裡我們等待 Mongoose 連線事件
+        console.log('正在等待 MongoDB 連線...');
+
+        // 檢查 Mongoose 連線狀態是否已準備好 (readyState 1 = connected)
+        if (mongoose.connection.readyState !== 1) {
+            await new Promise((resolve, reject) => {
+                // 等待 Mongoose 觸發 'open' 事件 (連線成功)
+                mongoose.connection.once('open', () => {
+                    console.log('✅ MongoDB 連線成功...');
+                    resolve();
+                });
+                // 或等待 'error' 事件 (連線失敗)
+                mongoose.connection.once('error', reject);
+            });
+        }
+        
+        // --- 修正點 2: 成功後才啟動 Express 伺服器 ---
+        server.listen(PORT, () => {
+            console.log(`Server is running on port ${PORT}`);
+            console.log(`Socket.IO is listening on http://localhost:${PORT}`);
+        });
+        
+    } catch (error) {
+        // 如果連線失敗，則退出應用程式
+        console.error('❌ 伺服器啟動失敗，MongoDB 連線錯誤:', error);
+        // 這裡會捕獲 connectDB() 或等待期間拋出的錯誤
+        process.exit(1);
+    }
+};
+
+// 執行啟動函式
+startServer();
