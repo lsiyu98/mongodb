@@ -276,39 +276,39 @@ app.get("/api/announcement/all", async (req, res) => {
 });
 
 
-// 啟動伺服器
+// ===========================================
+// 啟動伺服器 (確保在 MongoDB 連線完成後執行)
+// ===========================================
 const startServer = async () => {
     try {
-        // --- 修正點 1: 等待 Mongoose 連線完成 ---
-        // 由於 connectDB() 已經在檔案開頭被呼叫，這裡我們等待 Mongoose 連線事件
         console.log('正在等待 MongoDB 連線...');
 
-        // 檢查 Mongoose 連線狀態是否已準備好 (readyState 1 = connected)
+        // 雖然您看到 "MongoDB 連線成功"，但我們仍需確保 Mongoose 狀態為 1 (連線中)
         if (mongoose.connection.readyState !== 1) {
             await new Promise((resolve, reject) => {
-                // 等待 Mongoose 觸發 'open' 事件 (連線成功)
+                // 必須等待 'open' 事件
                 mongoose.connection.once('open', () => {
-                    console.log('✅ MongoDB 連線成功...');
+                    // 請注意，您看到的 "MongoDB 連線成功..." 訊息應該是從這裡輸出的
+                    console.log('✅ MongoDB 連線成功...'); 
                     resolve();
                 });
-                // 或等待 'error' 事件 (連線失敗)
                 mongoose.connection.once('error', reject);
             });
         }
         
-        // --- 修正點 2: 成功後才啟動 Express 伺服器 ---
+        // --- 核心修正點：確保 Express 伺服器在這裡啟動 ---
         server.listen(PORT, () => {
-            console.log(`Server is running on port ${PORT}`);
-            console.log(`Socket.IO is listening on http://localhost:${PORT}`);
+            console.log(`✅ 伺服器運行於 http://localhost:${PORT}`);
+            console.log(`✅ Socket.IO is listening on http://localhost:${PORT}`);
+            console.log(`現在您可以打開 app.html 進行測試。`);
         });
         
     } catch (error) {
-        // 如果連線失敗，則退出應用程式
+        // 如果連線失敗，會在這裡拋出錯誤
         console.error('❌ 伺服器啟動失敗，MongoDB 連線錯誤:', error);
-        // 這裡會捕獲 connectDB() 或等待期間拋出的錯誤
         process.exit(1);
     }
 };
 
-// 執行啟動函式
-startServer();
+// --- 必須呼叫啟動函式 ---
+startServer(); // <--- 確保這行程式碼在檔案末尾被執行
